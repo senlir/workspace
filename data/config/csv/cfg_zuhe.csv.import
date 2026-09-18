@@ -1,0 +1,19 @@
+[remap]
+
+importer="csv_translation"
+type="Translation"
+uid="uid://s4s4of7i6koo"
+
+[deps]
+
+files=["res://data/config/csv/cfg_zuhe.shuzhi1.translation", "res://data/config/csv/cfg_zuhe.shuzhi1dir.translation", "res://data/config/csv/cfg_zuhe.shuzhi2.translation", "res://data/config/csv/cfg_zuhe.shuzhi2dir.translation", "res://data/config/csv/cfg_zuhe.guaiwu1.translation", "res://data/config/csv/cfg_zuhe.guaiwu2.translation", "res://data/config/csv/cfg_zuhe.duanshuzhi.translation", "res://data/config/csv/cfg_zuhe.guaiwu1x.translation", "res://data/config/csv/cfg_zuhe.guaiwu2x.translation"]
+
+source_file="res://data/config/csv/cfg_zuhe.csv"
+dest_files=["res://data/config/csv/cfg_zuhe.shuzhi1.translation", "res://data/config/csv/cfg_zuhe.shuzhi1dir.translation", "res://data/config/csv/cfg_zuhe.shuzhi2.translation", "res://data/config/csv/cfg_zuhe.shuzhi2dir.translation", "res://data/config/csv/cfg_zuhe.guaiwu1.translation", "res://data/config/csv/cfg_zuhe.guaiwu2.translation", "res://data/config/csv/cfg_zuhe.duanshuzhi.translation", "res://data/config/csv/cfg_zuhe.guaiwu1x.translation", "res://data/config/csv/cfg_zuhe.guaiwu2x.translation"]
+
+[params]
+
+compress=1
+delimiter=0
+unescape_keys=false
+unescape_translations=true

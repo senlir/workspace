@@ -1,0 +1,19 @@
+[remap]
+
+importer="csv_translation"
+type="Translation"
+uid="uid://dsnmsq6xhw131"
+
+[deps]
+
+files=["res://data/config/csv/cfg_daoju.value.translation", "res://data/config/csv/cfg_daoju.type.translation", "res://data/config/csv/cfg_daoju.img.translation", "res://data/config/csv/cfg_daoju.mc.translation", "res://data/config/csv/cfg_daoju.gold.translation"]
+
+source_file="res://data/config/csv/cfg_daoju.csv"
+dest_files=["res://data/config/csv/cfg_daoju.value.translation", "res://data/config/csv/cfg_daoju.type.translation", "res://data/config/csv/cfg_daoju.img.translation", "res://data/config/csv/cfg_daoju.mc.translation", "res://data/config/csv/cfg_daoju.gold.translation"]
+
+[params]
+
+compress=1
+delimiter=0
+unescape_keys=false
+unescape_translations=true

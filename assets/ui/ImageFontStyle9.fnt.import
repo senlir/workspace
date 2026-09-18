@@ -1,0 +1,17 @@
+[remap]
+
+importer="font_data_bmfont"
+type="FontFile"
+uid="uid://2v2fdhu1t1e2"
+path="res://.godot/imported/ImageFontStyle9.fnt-5b089a13c63cffd6e63880def1579d27.fontdata"
+
+[deps]
+
+source_file="res://assets/ui/ImageFontStyle9.fnt"
+dest_files=["res://.godot/imported/ImageFontStyle9.fnt-5b089a13c63cffd6e63880def1579d27.fontdata"]
+
+[params]
+
+fallbacks=[]
+compress=true
+scaling_mode=2

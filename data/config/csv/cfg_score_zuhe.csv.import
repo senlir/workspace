@@ -1,0 +1,19 @@
+[remap]
+
+importer="csv_translation"
+type="Translation"
+uid="uid://cr0kk3h7qvrhl"
+
+[deps]
+
+files=["res://data/config/csv/cfg_score_zuhe.ids.translation", "res://data/config/csv/cfg_score_zuhe.daojuid.translation"]
+
+source_file="res://data/config/csv/cfg_score_zuhe.csv"
+dest_files=["res://data/config/csv/cfg_score_zuhe.ids.translation", "res://data/config/csv/cfg_score_zuhe.daojuid.translation"]
+
+[params]
+
+compress=1
+delimiter=0
+unescape_keys=false
+unescape_translations=true

@@ -1,0 +1,19 @@
+[remap]
+
+importer="csv_translation"
+type="Translation"
+uid="uid://fvb3jgk40p02"
+
+[deps]
+
+files=["res://data/asset_manifest.target.translation", "res://data/asset_manifest.source.translation", "res://data/asset_manifest.extension.translation", "res://data/asset_manifest.bytes.translation", "res://data/asset_manifest.sha256.translation"]
+
+source_file="res://data/asset_manifest.csv"
+dest_files=["res://data/asset_manifest.target.translation", "res://data/asset_manifest.source.translation", "res://data/asset_manifest.extension.translation", "res://data/asset_manifest.bytes.translation", "res://data/asset_manifest.sha256.translation"]
+
+[params]
+
+compress=1
+delimiter=0
+unescape_keys=false
+unescape_translations=true

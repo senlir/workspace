@@ -1,0 +1,19 @@
+[remap]
+
+importer="csv_translation"
+type="Translation"
+uid="uid://cnis2xd513mig"
+
+[deps]
+
+files=["res://data/config/csv/cfg_shangcheng.toolid.translation", "res://data/config/csv/cfg_shangcheng.cost.translation"]
+
+source_file="res://data/config/csv/cfg_shangcheng.csv"
+dest_files=["res://data/config/csv/cfg_shangcheng.toolid.translation", "res://data/config/csv/cfg_shangcheng.cost.translation"]
+
+[params]
+
+compress=1
+delimiter=0
+unescape_keys=false
+unescape_translations=true

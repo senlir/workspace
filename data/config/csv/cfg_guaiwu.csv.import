@@ -1,0 +1,19 @@
+[remap]
+
+importer="csv_translation"
+type="Translation"
+uid="uid://g4y83gcs05x"
+
+[deps]
+
+files=["res://data/config/csv/cfg_guaiwu.movetype.translation", "res://data/config/csv/cfg_guaiwu.sky.translation", "res://data/config/csv/cfg_guaiwu.img.translation", "res://data/config/csv/cfg_guaiwu.speed.translation"]
+
+source_file="res://data/config/csv/cfg_guaiwu.csv"
+dest_files=["res://data/config/csv/cfg_guaiwu.movetype.translation", "res://data/config/csv/cfg_guaiwu.sky.translation", "res://data/config/csv/cfg_guaiwu.img.translation", "res://data/config/csv/cfg_guaiwu.speed.translation"]
+
+[params]
+
+compress=1
+delimiter=0
+unescape_keys=false
+unescape_translations=true

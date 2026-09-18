@@ -1,0 +1,19 @@
+[remap]
+
+importer="csv_translation"
+type="Translation"
+uid="uid://do68xajuqydti"
+
+[deps]
+
+files=["res://data/config/csv/cfg_shuzhi.lang.translation", "res://data/config/csv/cfg_shuzhi.time.translation", "res://data/config/csv/cfg_shuzhi.img.translation", "res://data/config/csv/cfg_shuzhi.houdu.translation"]
+
+source_file="res://data/config/csv/cfg_shuzhi.csv"
+dest_files=["res://data/config/csv/cfg_shuzhi.lang.translation", "res://data/config/csv/cfg_shuzhi.time.translation", "res://data/config/csv/cfg_shuzhi.img.translation", "res://data/config/csv/cfg_shuzhi.houdu.translation"]
+
+[params]
+
+compress=1
+delimiter=0
+unescape_keys=false
+unescape_translations=true
