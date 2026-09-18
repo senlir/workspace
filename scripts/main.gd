@@ -102,18 +102,13 @@ func _build_home() -> void:
 	shade.size = VIEW_SIZE
 	home.add_child(shade)
 
-	var title := _make_label("弹 弹 鸟", 72, Color("fff1a8"), true)
-	title.position = Vector2(70, 120)
+	var title := _make_label("弹弹鸟 · Godot 重制", 34, Color("fff1a8"), true)
+	title.position = Vector2(70, 650)
 	title.size = Vector2(500, 100)
 	title.add_theme_color_override("font_shadow_color", Color("6c2917"))
 	title.add_theme_constant_override("shadow_offset_x", 5)
 	title.add_theme_constant_override("shadow_offset_y", 7)
 	home.add_child(title)
-
-	var subtitle := _make_label("困难不可想象", 28, Color.WHITE, true)
-	subtitle.position = Vector2(150, 220)
-	subtitle.size = Vector2(340, 50)
-	home.add_child(subtitle)
 
 	var start_button := _make_button("开始挑战", Color("65c92f"))
 	start_button.position = Vector2(130, 760)
@@ -583,6 +578,13 @@ func _create_backgrounds() -> void:
 		sprite.position = Vector2(VIEW_SIZE.x * 0.5, VIEW_SIZE.y * 0.5 - index * 1091.0)
 		background_layer.add_child(sprite)
 		background_sprites.append(sprite)
+	for side in range(2):
+		var wall := Sprite2D.new()
+		wall.texture = load("res://assets/backgrounds/bgl%d.png" % (side + 1))
+		wall.centered = false
+		wall.position = Vector2(0.0 if side == 0 else VIEW_SIZE.x - wall.texture.get_width(), 0.0)
+		wall.z_index = 4
+		background_layer.add_child(wall)
 
 
 func _clear_content() -> void:
@@ -668,9 +670,27 @@ func _capture_smoke() -> void:
 	if home_image != null:
 		home_image.save_png("res://artifacts/home.png")
 	start_game()
+	assert(content_groups.size() >= 9, "Expected initial content groups")
 	await get_tree().process_frame
 	await get_tree().process_frame
 	var gameplay_image := get_viewport().get_texture().get_image()
 	if gameplay_image != null:
 		gameplay_image.save_png("res://artifacts/gameplay.png")
+	_begin_aim(Vector2(320.0, 450.0))
+	drag_position = Vector2(420.0, 585.0)
+	_update_launch_preview()
+	_release_aim()
+	assert(not grounded and velocity.y < 0.0, "Drag release must launch the player upward")
+	for frame in range(20):
+		_process(1.0 / 60.0)
+		await get_tree().process_frame
+	var action_image := get_viewport().get_texture().get_image()
+	if action_image != null:
+		action_image.save_png("res://artifacts/gameplay_action.png")
+	time_left = 0.0
+	_process(1.0 / 60.0)
+	assert(state == GameState.GAME_OVER, "Timer expiry must end the round")
+	start_game()
+	assert(state == GameState.PLAYING and hp == MAX_HP and score == 0, "Restart must reset the round")
+	print("SMOKE PASS: configs, spawning, atlas rendering, drag launch, game over and restart")
 	get_tree().quit()
