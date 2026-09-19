@@ -2,6 +2,11 @@
 .godot/
 /android/
 /artifacts/*.import
+/.venv/
+/.dev_workflow/
+.env
+__pycache__/
+*.py[cod]
 
 # Compiled Object files
 *.slo

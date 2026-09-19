@@ -28,6 +28,18 @@
 
 截图输出在 `artifacts`，测试覆盖配置加载、内容生成、图集渲染、拖拽弹射和结算重开。
 
+## AI 开发工作流
+
+项目内置 LangGraph 的 `提案 -> 讨论 -> 实现 -> 验证` 工作流，可切换 OpenAI、MiniMax 或无密钥的 mock 提供方：
+
+```powershell
+py -3 -m venv .venv
+& '.\.venv\Scripts\python.exe' -m pip install -r requirements-workflow.txt
+& '.\.venv\Scripts\python.exe' -m tools.dev_workflow.cli start '描述本次开发目标' --provider mock
+```
+
+配置、审批和恢复命令见 [`tools/dev_workflow/README.md`](tools/dev_workflow/README.md)。
+
 ## 平台调校
 
 在 Godot 中打开并运行 `tools/platform_tuning/platform_tuning.tscn`，可逐个平台调整：
