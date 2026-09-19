@@ -27,3 +27,13 @@
 ```
 
 截图输出在 `artifacts`，测试覆盖配置加载、内容生成、图集渲染、拖拽弹射和结算重开。
+
+## 平台调校
+
+在 Godot 中打开并运行 `tools/platform_tuning/platform_tuning.tscn`，可逐个平台调整：
+
+- `surface_y`：素材顶部到角色脚底站位面的距离。
+- `collision_height`：平台向下的碰撞厚度。
+- `edge_inset`：左右两侧不可站立的视觉留白。
+
+保存后写入 `data/config/cfg_platform_profiles.json`，重新开始一局即可生效。红线表示站位面，绿色区域表示有效碰撞范围。

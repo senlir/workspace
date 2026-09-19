@@ -35,6 +35,7 @@ var background_sprites: Array[Sprite2D] = []
 var content_groups: Array[Dictionary] = []
 var velocity := Vector2.ZERO
 var grounded := true
+var grounded_platform: Dictionary = {}
 var aiming := false
 var drag_origin := Vector2.ZERO
 var drag_position := Vector2.ZERO
@@ -47,7 +48,7 @@ var rocket_time := 0.0
 var highest_group_y := 900.0
 var tier_slot := 0
 var current_tier_score := -1
-var safe_position := Vector2(320.0, 840.0)
+var safe_position := Vector2(320.0, 876.0)
 
 var score_label: Label
 var timer_label: Label
@@ -222,6 +223,7 @@ func start_game() -> void:
 	current_tier_score = 0
 	velocity = Vector2.ZERO
 	grounded = true
+	grounded_platform = {}
 	aiming = false
 	player.position = safe_position
 	player.modulate = Color.WHITE
@@ -238,7 +240,12 @@ func _process(delta: float) -> void:
 	time_left = maxf(0.0, time_left - delta)
 	hurt_cooldown = maxf(0.0, hurt_cooldown - delta)
 	rocket_time = maxf(0.0, rocket_time - delta)
-	player.modulate = Color("ffd95b") if rocket_time > 0.0 else Color.WHITE
+	if rocket_time > 0.0:
+		player.modulate = Color("ffd95b")
+	elif hurt_cooldown > 0.0 and int(hurt_cooldown * 12.0) % 2 == 0:
+		player.modulate = Color(1.0, 1.0, 1.0, 0.35)
+	else:
+		player.modulate = Color.WHITE
 	if time_left <= 0.0:
 		_finish_game()
 		return
@@ -286,7 +293,8 @@ func _check_platform_landing(previous_position: Vector2) -> void:
 			var top := root.position.y + float(platform["local_y"])
 			var left := float(platform["x"])
 			var right := left + float(platform["width"])
-			if old_bottom <= top + 2.0 and new_bottom >= top and player.position.x + 24.0 >= left and player.position.x - 24.0 <= right:
+			var collision_bottom := top + float(platform["height"])
+			if old_bottom <= collision_bottom and new_bottom >= top and player.position.x + 22.0 >= left and player.position.x - 22.0 <= right:
 				if top < best_top:
 					best_top = top
 					best_platform = platform
@@ -295,6 +303,7 @@ func _check_platform_landing(previous_position: Vector2) -> void:
 		player.position.y = best_top - PLAYER_RADIUS
 		velocity = Vector2.ZERO
 		grounded = true
+		grounded_platform = best_platform
 		player.play("walk1")
 		if float(best_platform.get("fall_delay", 0.0)) > 0.0 and float(best_platform.get("fall_timer", -1.0)) < 0.0:
 			best_platform["fall_timer"] = float(best_platform["fall_delay"])
@@ -344,6 +353,7 @@ func _release_aim() -> void:
 	var power := clampf(drag.length() / MAX_DRAG, 0.0, 1.0)
 	velocity = -drag.normalized() * lerpf(260.0, MAX_LAUNCH_SPEED, power)
 	grounded = false
+	grounded_platform = {}
 	player.play("walk4" if power > 0.82 else "walk3")
 	_play_sound(6)
 
@@ -368,6 +378,7 @@ func _scroll_world(amount: float) -> void:
 				highest = minf(highest, other.position.y)
 			bg.position.y = highest - bg.texture.get_height()
 	highest_group_y += amount
+	safe_position.y += amount
 	_cleanup_and_spawn()
 
 
@@ -422,17 +433,32 @@ func _spawn_config_group(y: float) -> void:
 
 
 func _create_platform(root: Node2D, cfg: Dictionary, start_x: float, local_y: float, mirrored: bool) -> Dictionary:
-	var width := float(cfg["lang"])
+	var profile: Dictionary = db.get_platform_profile(int(cfg["id"]))
+	var inset := float(profile.get("edge_inset", 0.0))
+	var visual_width := float(cfg["lang"])
 	var x := start_x
 	if mirrored:
-		x = VIEW_SIZE.x - start_x - width
+		x = VIEW_SIZE.x - start_x - visual_width
 	var sprite := Sprite2D.new()
 	sprite.texture = atlas.frame("res://assets/ui/game1.png", "res://assets/ui/game1.json", str(cfg["img"]))
 	sprite.centered = false
-	sprite.position = Vector2(x, local_y - float(cfg["houdu"]) * 0.5)
+	sprite.position = Vector2(x, local_y - float(profile["surface_y"]))
 	sprite.flip_h = mirrored
 	root.add_child(sprite)
-	return {"sprite": sprite, "x": x, "width": width, "local_y": local_y, "height": float(cfg["houdu"]), "fall_delay": float(cfg["time"]), "fall_timer": -1.0, "fall_speed": 0.0, "falling": false}
+	return {
+		"id": int(cfg["id"]),
+		"sprite": sprite,
+		"x": x + inset,
+		"width": maxf(1.0, visual_width - inset * 2.0),
+		"visual_x": x,
+		"local_y": local_y,
+		"surface_y": float(profile["surface_y"]),
+		"height": float(profile["collision_height"]),
+		"fall_delay": float(cfg["time"]),
+		"fall_timer": -1.0,
+		"fall_speed": 0.0,
+		"falling": false
+	}
 
 
 func _update_platforms(delta: float) -> void:
@@ -444,11 +470,16 @@ func _update_platforms(delta: float) -> void:
 				platform["fall_timer"] = timer
 				if timer <= 0.0:
 					platform["falling"] = true
+					if not grounded_platform.is_empty() and grounded_platform.get("sprite") == platform["sprite"]:
+						grounded = false
+						grounded_platform = {}
+						velocity = Vector2(0.0, maxf(90.0, float(platform["fall_speed"])))
+						player.play("walk3")
 			if platform.get("falling", false):
 				platform["fall_speed"] = float(platform["fall_speed"]) + GRAVITY * delta * 0.65
 				platform["local_y"] = float(platform["local_y"]) + float(platform["fall_speed"]) * delta
 				var sprite: Sprite2D = platform["sprite"]
-				sprite.position.y = float(platform["local_y"]) - float(platform["height"]) * 0.5
+				sprite.position.y = float(platform["local_y"]) - float(platform["surface_y"])
 
 
 func _create_monster(root: Node2D, cfg: Dictionary, x: float) -> Dictionary:
@@ -495,12 +526,13 @@ func _update_monsters(delta: float) -> void:
 				elif sprite.position.x > VIEW_SIZE.x - 45.0:
 					monster["direction"] = -1.0
 				sprite.flip_h = float(monster["direction"]) > 0.0
-			var global_pos := root.position + sprite.position
-			if global_pos.distance_to(player.position) < 58.0:
-				if rocket_time > 0.0 or (velocity.y > 120.0 and player.position.y < global_pos.y - 10.0):
+			var monster_rect := _sprite_world_rect(sprite, root.position)
+			if _circle_intersects_rect(player.position, PLAYER_RADIUS * 0.72, monster_rect):
+				if rocket_time > 0.0 or (velocity.y > 120.0 and player.position.y + PLAYER_RADIUS * 0.5 < monster_rect.position.y + 8.0):
 					monster["dead"] = true
 					velocity.y = -420.0
 					grounded = false
+					grounded_platform = {}
 					_add_score(10)
 				else:
 					_take_damage(false)
@@ -515,7 +547,7 @@ func _update_pickups() -> void:
 				continue
 			var sprite: Sprite2D = pickup["sprite"]
 			sprite.position.y = -80.0 + sin(elapsed * 3.0 + float(pickup["phase"])) * 7.0
-			if (root.position + sprite.position).distance_to(player.position) < 52.0:
+			if _circle_intersects_rect(player.position, PLAYER_RADIUS * 0.72, _sprite_world_rect(sprite, root.position)):
 				pickup["taken"] = true
 				sprite.visible = false
 				_apply_pickup(pickup["cfg"])
@@ -548,9 +580,61 @@ func _take_damage(fell: bool) -> void:
 	if hp <= 0:
 		_finish_game()
 		return
-	player.position = Vector2(320.0, 760.0) if fell else player.position + Vector2(0, -50)
-	velocity = Vector2(rng.randf_range(-280.0, 280.0), -480.0)
-	grounded = false
+	if fell:
+		var respawn := _find_respawn_target()
+		player.position = respawn["position"]
+		velocity = Vector2.ZERO
+		grounded = true
+		grounded_platform = respawn["platform"]
+		player.play("walk1")
+	else:
+		player.position += Vector2(0, -50)
+		velocity = Vector2(rng.randf_range(-280.0, 280.0), -480.0)
+		grounded = false
+		grounded_platform = {}
+
+
+func _find_respawn_target() -> Dictionary:
+	var best_platform: Dictionary = {}
+	var best_position := safe_position
+	var best_distance := INF
+	for group in content_groups:
+		var root: Node2D = group["root"]
+		for platform in group["platforms"]:
+			if platform.get("falling", false):
+				continue
+			var top := root.position.y + float(platform["local_y"])
+			if top < CAMERA_LINE + 70.0 or top > VIEW_SIZE.y - 80.0:
+				continue
+			var distance := absf(top - 790.0)
+			if distance < best_distance:
+				best_distance = distance
+				best_platform = platform
+				var left := float(platform["x"])
+				var right := left + float(platform["width"])
+				best_position = Vector2(clampf(player.position.x, left + 32.0, right - 32.0), top - PLAYER_RADIUS)
+	return {"position": best_position, "platform": best_platform}
+
+
+func _sprite_world_rect(sprite: Node2D, root_position: Vector2) -> Rect2:
+	var texture: Texture2D
+	if sprite is AnimatedSprite2D:
+		var animated := sprite as AnimatedSprite2D
+		texture = animated.sprite_frames.get_frame_texture(animated.animation, animated.frame)
+	elif sprite is Sprite2D:
+		texture = (sprite as Sprite2D).texture
+	if texture == null:
+		return Rect2(root_position + sprite.position - Vector2(20, 20), Vector2(40, 40))
+	var texture_size := texture.get_size() * sprite.scale.abs()
+	return Rect2(root_position + sprite.position - texture_size * 0.5, texture_size)
+
+
+func _circle_intersects_rect(center: Vector2, radius: float, rect: Rect2) -> bool:
+	var nearest := Vector2(
+		clampf(center.x, rect.position.x, rect.end.x),
+		clampf(center.y, rect.position.y, rect.end.y)
+	)
+	return center.distance_squared_to(nearest) <= radius * radius
 
 
 func _cleanup_and_spawn() -> void:
@@ -664,6 +748,7 @@ func _make_button(text_value: String, color: Color) -> Button:
 
 func _capture_smoke() -> void:
 	DirAccess.make_dir_recursive_absolute("res://artifacts")
+	assert(db.platform_profiles.size() == db.platforms.size(), "Every platform needs a tuning profile")
 	await get_tree().process_frame
 	await get_tree().process_frame
 	var home_image := get_viewport().get_texture().get_image()
@@ -692,5 +777,9 @@ func _capture_smoke() -> void:
 	assert(state == GameState.GAME_OVER, "Timer expiry must end the round")
 	start_game()
 	assert(state == GameState.PLAYING and hp == MAX_HP and score == 0, "Restart must reset the round")
-	print("SMOKE PASS: configs, spawning, atlas rendering, drag launch, game over and restart")
+	player.position.y = VIEW_SIZE.y + 100.0
+	_update_player(1.0 / 60.0)
+	assert(hp == MAX_HP - 1 and grounded, "Falling must cost one life and respawn on a safe platform")
+	assert(not grounded_platform.is_empty(), "Respawn must select a live platform")
+	print("SMOKE PASS: configs, platform profiles, spawning, collisions, drag launch, safe respawn, game over and restart")
 	get_tree().quit()

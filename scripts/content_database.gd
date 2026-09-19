@@ -4,6 +4,7 @@ extends RefCounted
 var tools: Dictionary = {}
 var monsters: Dictionary = {}
 var platforms: Dictionary = {}
+var platform_profiles: Dictionary = {}
 var groups: Dictionary = {}
 var score_tiers: Array[Dictionary] = []
 
@@ -12,6 +13,7 @@ func load_all() -> void:
 	tools = _index_by_id(_load_json("res://data/config/cfg_daoju.json"))
 	monsters = _index_by_id(_load_json("res://data/config/cfg_guaiwu.json"))
 	platforms = _index_by_id(_load_json("res://data/config/cfg_shuzhi.json"))
+	platform_profiles = _index_by_id(_load_json("res://data/config/cfg_platform_profiles.json"))
 	groups = _index_by_id(_load_json("res://data/config/cfg_zuhe.json"))
 	for row in _load_json("res://data/config/cfg_score_zuhe.json"):
 		var tier: Dictionary = row.duplicate(true)
@@ -31,6 +33,14 @@ func get_tier(score: int) -> Dictionary:
 		else:
 			break
 	return selected
+
+
+func get_platform_profile(id: int) -> Dictionary:
+	if platform_profiles.has(id):
+		return platform_profiles[id]
+	var cfg: Dictionary = platforms.get(id, {})
+	var height := float(cfg.get("houdu", 32.0))
+	return {"id": id, "surface_y": height * 0.5, "collision_height": height, "edge_inset": 0.0}
 
 
 func pick_group_id(score: int, slot_index: int, rng: RandomNumberGenerator) -> int:

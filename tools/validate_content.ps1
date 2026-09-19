@@ -33,6 +33,7 @@ function Test-UniqueKey($Rows, [string]$Name, [string]$Key) {
 $tools = Read-Config 'cfg_daoju.json'
 $monsters = Read-Config 'cfg_guaiwu.json'
 $platforms = Read-Config 'cfg_shuzhi.json'
+$platformProfiles = Read-Config 'cfg_platform_profiles.json'
 $groups = Read-Config 'cfg_zuhe.json'
 $tiers = Read-Config 'cfg_score_zuhe.json'
 $shops = Read-Config 'cfg_shangcheng.json'
@@ -40,6 +41,7 @@ $shops = Read-Config 'cfg_shangcheng.json'
 Test-UniqueKey $tools 'cfg_daoju.json' 'id'
 Test-UniqueKey $monsters 'cfg_guaiwu.json' 'id'
 Test-UniqueKey $platforms 'cfg_shuzhi.json' 'id'
+Test-UniqueKey $platformProfiles 'cfg_platform_profiles.json' 'id'
 Test-UniqueKey $groups 'cfg_zuhe.json' 'id'
 Test-UniqueKey $tiers 'cfg_score_zuhe.json' 'score'
 Test-UniqueKey $shops 'cfg_shangcheng.json' 'id'
@@ -47,7 +49,32 @@ Test-UniqueKey $shops 'cfg_shangcheng.json' 'id'
 $toolIds = @{}; $tools | ForEach-Object { $toolIds[[int]$_.id] = $true }
 $monsterIds = @{}; $monsters | ForEach-Object { $monsterIds[[int]$_.id] = $true }
 $platformIds = @{}; $platforms | ForEach-Object { $platformIds[[int]$_.id] = $true }
+$platformProfileIds = @{}; $platformProfiles | ForEach-Object { $platformProfileIds[[int]$_.id] = $true }
 $groupIds = @{}; $groups | ForEach-Object { $groupIds[[int]$_.id] = $true }
+
+foreach ($platform in $platforms) {
+    $id = [int]$platform.id
+    if (-not $platformProfileIds.ContainsKey($id)) {
+        $errors.Add("Platform $id has no tuning profile")
+    }
+}
+foreach ($profile in $platformProfiles) {
+    $id = [int]$profile.id
+    if (-not $platformIds.ContainsKey($id)) {
+        $errors.Add("Platform profile $id references a missing platform")
+        continue
+    }
+    $platform = $platforms | Where-Object { [int]$_.id -eq $id } | Select-Object -First 1
+    if ([double]$profile.surface_y -lt 0) {
+        $errors.Add("Platform profile $id has a negative surface_y")
+    }
+    if ([double]$profile.collision_height -le 0) {
+        $errors.Add("Platform profile $id must have a positive collision_height")
+    }
+    if ([double]$profile.edge_inset -lt 0 -or ([double]$profile.edge_inset * 2) -ge [double]$platform.lang) {
+        $errors.Add("Platform profile $id edge_inset leaves no standable width")
+    }
+}
 
 foreach ($group in $groups) {
     foreach ($field in 'shuzhi1','shuzhi2') {
@@ -122,7 +149,7 @@ if ($shield -and ([double]$shield.value -le 0 -or [string]::IsNullOrWhiteSpace([
     $warnings.Add('Tool 1 (shield) is incomplete and should not enter the drop sequence.')
 }
 
-Write-Host "Validated: $($tools.Count) tools, $($monsters.Count) monsters, $($platforms.Count) platforms, $($groups.Count) groups, $($tiers.Count) score tiers, $($shops.Count) shop rows."
+Write-Host "Validated: $($tools.Count) tools, $($monsters.Count) monsters, $($platforms.Count) platforms, $($platformProfiles.Count) platform profiles, $($groups.Count) groups, $($tiers.Count) score tiers, $($shops.Count) shop rows."
 foreach ($warning in $warnings) { Write-Warning $warning }
 foreach ($errorMessage in $errors) { Write-Error $errorMessage }
 

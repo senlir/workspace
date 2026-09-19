@@ -1,0 +1,19 @@
+[remap]
+
+importer="csv_translation"
+type="Translation"
+uid="uid://dhyyxlp076t6u"
+
+[deps]
+
+files=["res://data/config/csv/cfg_platform_profiles.surface.translation", "res://data/config/csv/cfg_platform_profiles.collision.translation", "res://data/config/csv/cfg_platform_profiles.edge.translation"]
+
+source_file="res://data/config/csv/cfg_platform_profiles.csv"
+dest_files=["res://data/config/csv/cfg_platform_profiles.surface.translation", "res://data/config/csv/cfg_platform_profiles.collision.translation", "res://data/config/csv/cfg_platform_profiles.edge.translation"]
+
+[params]
+
+compress=1
+delimiter=0
+unescape_keys=false
+unescape_translations=true
