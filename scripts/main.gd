@@ -30,6 +30,7 @@ var world := Node2D.new()
 var background_layer := Node2D.new()
 var content_layer := Node2D.new()
 var player := AnimatedSprite2D.new()
+var shield_effect := AnimatedSprite2D.new()
 var aim_layer = AimOverlayClass.new()
 var hud := CanvasLayer.new()
 var home := CanvasLayer.new()
@@ -50,6 +51,7 @@ var energy := 0
 var time_left := ROUND_TIME
 var hurt_cooldown := 0.0
 var rocket_time := 0.0
+var shield_time := 0.0
 var highest_group_y := 900.0
 var tier_slot := 0
 var current_tier_score := -1
@@ -72,6 +74,7 @@ var pause_overlay: CanvasLayer
 var pause_button: Button
 var sound_buttons: Array[Button] = []
 var tier_notice_label: Label
+var buff_label: Label
 
 
 func _ready() -> void:
@@ -105,6 +108,15 @@ func _build_world() -> void:
 	player.animation = "walk1"
 	player.position = safe_position
 	player.z_index = 20
+	shield_effect.sprite_frames = atlas.movie_frames(
+		"res://assets/animations/effects/hudun.png",
+		"res://assets/animations/effects/hudun.json",
+		"walk"
+	)
+	shield_effect.animation = "hudun"
+	shield_effect.z_index = -1
+	shield_effect.visible = false
+	player.add_child(shield_effect)
 
 
 func _build_home() -> void:
@@ -193,6 +205,11 @@ func _build_hud() -> void:
 	tier_notice_label.add_theme_constant_override("shadow_offset_y", 2)
 	tier_notice_label.visible = false
 	hud.add_child(tier_notice_label)
+	buff_label = _make_label("", 20, Color("80efff"), true)
+	buff_label.position = Vector2(200, 126)
+	buff_label.size = Vector2(240, 38)
+	buff_label.visible = false
+	hud.add_child(buff_label)
 	var hud_sound := _make_icon_button("♪", "切换音效")
 	hud_sound.position = Vector2(278, 35)
 	hud_sound.pressed.connect(_toggle_sound)
@@ -285,6 +302,7 @@ func start_game() -> void:
 	time_left = ROUND_TIME
 	hurt_cooldown = 0.0
 	rocket_time = 0.0
+	shield_time = 0.0
 	tier_notice_time = 0.0
 	tier_slot = 0
 	current_tier_score = 0
@@ -299,6 +317,8 @@ func start_game() -> void:
 	safe_position = Vector2(320.0, START_PLATFORM_Y - PLAYER_RADIUS)
 	player.position = safe_position
 	player.scale = Vector2.ONE
+	shield_effect.visible = false
+	shield_effect.stop()
 	player.modulate = Color.WHITE
 	player.play("walk1")
 	hint_label.visible = true
@@ -313,6 +333,10 @@ func _process(delta: float) -> void:
 	time_left = maxf(0.0, time_left - delta)
 	hurt_cooldown = maxf(0.0, hurt_cooldown - delta)
 	rocket_time = maxf(0.0, rocket_time - delta)
+	shield_time = maxf(0.0, shield_time - delta)
+	if shield_time <= 0.0 and shield_effect.visible:
+		shield_effect.visible = false
+		shield_effect.stop()
 	tier_notice_time = maxf(0.0, tier_notice_time - delta)
 	tier_notice_label.visible = tier_notice_time > 0.0
 	if rocket_time > 0.0:
@@ -767,6 +791,10 @@ func _update_pickups() -> void:
 
 func _apply_pickup(cfg: Dictionary) -> void:
 	match int(cfg["type"]):
+		1:
+			_activate_shield(float(cfg["value"]) / 1000.0)
+		2:
+			rocket_time = maxf(rocket_time, float(cfg["value"]) / 1000.0)
 		3:
 			time_left = minf(ROUND_TIME, time_left + float(cfg["value"]))
 		4:
@@ -784,7 +812,9 @@ func _apply_pickup(cfg: Dictionary) -> void:
 
 
 func _take_damage(fell: bool) -> void:
-	if hurt_cooldown > 0.0 or rocket_time > 0.0 or state != GameState.PLAYING:
+	if hurt_cooldown > 0.0 or state != GameState.PLAYING:
+		return
+	if not fell and (rocket_time > 0.0 or shield_time > 0.0):
 		return
 	hp -= 1
 	hurt_cooldown = 1.2
@@ -918,6 +948,20 @@ func _update_hud() -> void:
 	timer_label.text = "时间 %d" % ceili(time_left)
 	hp_label.text = "生命 " + "♥ ".repeat(hp).strip_edges()
 	energy_label.text = "能量 " + "■ ".repeat(energy) + "□ ".repeat(5 - energy)
+	if shield_time > 0.0:
+		buff_label.text = "护盾 %.1f 秒" % shield_time
+		buff_label.visible = true
+	elif rocket_time > 0.0:
+		buff_label.text = "火箭 %.1f 秒" % rocket_time
+		buff_label.visible = true
+	else:
+		buff_label.visible = false
+
+
+func _activate_shield(duration: float) -> void:
+	shield_time = maxf(shield_time, duration)
+	shield_effect.visible = true
+	shield_effect.play("hudun")
 
 
 func _update_aim_layer_draw() -> void:
@@ -1032,6 +1076,12 @@ func _capture_smoke() -> void:
 		home_image.save_png("res://artifacts/home.png")
 	start_game()
 	assert(content_groups.size() >= 9, "Expected initial content groups")
+	assert(shield_effect.sprite_frames.has_animation("hudun") and shield_effect.sprite_frames.get_frame_count("hudun") == 5, "Shield effect must load all five animation frames")
+	var shield_available := false
+	for slot in db.get_tier(300)["tool_slots"]:
+		if 1 in slot:
+			shield_available = true
+	assert(shield_available, "Shield must enter the drop pool from the 300 score tier")
 	var trajectory := get_trajectory_points(Vector2(80.0, 130.0))
 	assert(trajectory.size() >= 3, "Aiming must provide a usable trajectory preview")
 	assert((trajectory[2].y - trajectory[1].y) > (trajectory[1].y - trajectory[0].y), "Trajectory preview must include gravity")
@@ -1137,6 +1187,18 @@ func _capture_smoke() -> void:
 	_process(1.0)
 	assert(time_left == pause_time, "Pausing must freeze the round timer")
 	_toggle_pause()
+	var hp_before_shield := hp
+	_activate_shield(5.0)
+	_take_damage(false)
+	assert(hp == hp_before_shield and shield_effect.visible, "An active shield must block monster damage and show its effect")
+	await get_tree().process_frame
+	await get_tree().process_frame
+	var shield_image := get_viewport().get_texture().get_image()
+	if shield_image != null:
+		shield_image.save_png("res://artifacts/shield.png")
+	shield_time = 0.0
+	shield_effect.visible = false
+	shield_effect.stop()
 	var ice_start_x := player.position.x
 	grounded_platform = {"id": 24, "slide_direction": 1.0}
 	_update_player(0.2)
