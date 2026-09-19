@@ -16,6 +16,7 @@ const MAX_HP := 4
 const ROUND_TIME := 180.0
 const SAVE_PATH := "user://progress.cfg"
 const ICE_SPEED := 210.0
+const LINE21_MAX_UPWARD_SPEED := 820.0
 
 enum GameState { HOME, PLAYING, GAME_OVER }
 
@@ -425,7 +426,10 @@ func get_launch_velocity(drag: Vector2) -> Vector2:
 		return Vector2.ZERO
 	var limited_drag := drag.limit_length(MAX_DRAG)
 	var power := clampf(limited_drag.length() / MAX_DRAG, 0.0, 1.0)
-	return -limited_drag.normalized() * lerpf(260.0, MAX_LAUNCH_SPEED, power)
+	var launch_velocity := -limited_drag.normalized() * lerpf(260.0, MAX_LAUNCH_SPEED, power)
+	if int(grounded_platform.get("id", 0)) == 21:
+		launch_velocity.y = maxf(launch_velocity.y, -LINE21_MAX_UPWARD_SPEED)
+	return launch_velocity
 
 
 func get_trajectory_points(drag: Vector2) -> Array[Vector2]:
@@ -1006,6 +1010,13 @@ func _capture_smoke() -> void:
 	assert((trajectory[2].y - trajectory[1].y) > (trajectory[1].y - trajectory[0].y), "Trajectory preview must include gravity")
 	var landing_prediction := get_trajectory_prediction(Vector2(30.0, 135.0))
 	assert(not landing_prediction["landing"].is_empty(), "Reachable launch arcs must identify their landing platform")
+	var original_grounded_platform := grounded_platform
+	grounded_platform = {"id": 21}
+	var line21_launch := get_launch_velocity(Vector2(0.0, MAX_DRAG))
+	var line21_apex := line21_launch.y * line21_launch.y / (2.0 * GRAVITY)
+	assert(is_equal_approx(line21_launch.y, -LINE21_MAX_UPWARD_SPEED), "Line21 must cap its upward launch speed")
+	assert(line21_apex > GROUP_GAP and line21_apex < SHORT_PLATFORM_GAP * 2.0, "Line21 must reach one tier without skipping two")
+	grounded_platform = original_grounded_platform
 	var last_was_double := false
 	for group in content_groups:
 		var is_double: bool = group["platforms"].size() > 1
