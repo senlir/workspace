@@ -18,7 +18,6 @@ const ROUND_TIME := 180.0
 const SAVE_PATH := "user://progress.cfg"
 const ICE_SPEED := 210.0
 const LINE21_MAX_UPWARD_SPEED := 820.0
-const ROCKET_BOOST_SPEED := 1150.0
 
 enum GameState { HOME, PLAYING, GAME_OVER }
 
@@ -54,6 +53,7 @@ var energy := 0
 var time_left := ROUND_TIME
 var hurt_cooldown := 0.0
 var rocket_time := 0.0
+var rocket_speed := 0.0
 var shield_time := 0.0
 var highest_group_y := 900.0
 var tier_slot := 0
@@ -327,6 +327,7 @@ func start_game() -> void:
 	time_left = ROUND_TIME
 	hurt_cooldown = 0.0
 	rocket_time = 0.0
+	rocket_speed = 0.0
 	shield_time = 0.0
 	tier_notice_time = 0.0
 	tier_slot = 0
@@ -361,14 +362,18 @@ func _process(delta: float) -> void:
 		return
 	time_left = maxf(0.0, time_left - delta)
 	hurt_cooldown = maxf(0.0, hurt_cooldown - delta)
+	var rocket_was_active := rocket_time > 0.0
 	rocket_time = maxf(0.0, rocket_time - delta)
+	if rocket_time > 0.0:
+		grounded = false
+		grounded_platform = {}
+		velocity.y = -rocket_speed
+	elif rocket_was_active:
+		_deactivate_rocket()
 	shield_time = maxf(0.0, shield_time - delta)
 	if shield_time <= 0.0 and shield_effect.visible:
 		shield_effect.visible = false
 		shield_effect.stop()
-	if rocket_time <= 0.0 and rocket_effect.visible:
-		rocket_effect.visible = false
-		rocket_effect.stop()
 	tier_notice_time = maxf(0.0, tier_notice_time - delta)
 	tier_notice_label.visible = tier_notice_time > 0.0
 	if rocket_time > 0.0:
@@ -395,7 +400,8 @@ func _update_player(delta: float) -> void:
 		velocity.x = move_toward(velocity.x, ice_direction * ICE_SPEED, 520.0 * delta)
 		player.position.x += velocity.x * delta
 	elif not grounded:
-		velocity.y += GRAVITY * delta
+		if rocket_time <= 0.0:
+			velocity.y += GRAVITY * delta
 		player.position += velocity * delta
 		_check_platform_landing(previous_position)
 	if player.position.x < PLAYER_RADIUS:
@@ -826,7 +832,7 @@ func _apply_pickup(cfg: Dictionary) -> void:
 		1:
 			_activate_shield(float(cfg["value"]) / 1000.0)
 		2:
-			_activate_rocket(float(cfg["value"]) / 1000.0)
+			_activate_rocket(float(cfg["value"]) / 1000.0, float(cfg.get("speed", 560.0)))
 		3:
 			time_left = minf(ROUND_TIME, time_left + float(cfg["value"]))
 		4:
@@ -839,7 +845,8 @@ func _apply_pickup(cfg: Dictionary) -> void:
 			energy = mini(5, energy + int(cfg["value"]))
 			if energy >= 5:
 				energy = 0
-				_activate_rocket(5.0)
+				var rocket_cfg: Dictionary = db.tools[2]
+				_activate_rocket(float(rocket_cfg["value"]) / 1000.0, float(rocket_cfg.get("speed", 560.0)))
 	_add_score(10)
 	_play_sound(2)
 
@@ -965,6 +972,7 @@ func _finish_game() -> void:
 	if state != GameState.PLAYING:
 		return
 	state = GameState.GAME_OVER
+	_deactivate_rocket()
 	velocity = Vector2.ZERO
 	aiming = false
 	if score > high_score:
@@ -997,15 +1005,25 @@ func _activate_shield(duration: float) -> void:
 	shield_effect.play("hudun")
 
 
-func _activate_rocket(duration: float) -> void:
+func _activate_rocket(duration: float, speed: float) -> void:
 	rocket_time = maxf(rocket_time, duration)
+	rocket_speed = speed
 	rocket_effect.visible = true
 	rocket_effect.play("huojian")
 	grounded = false
 	grounded_platform = {}
 	aiming = false
-	velocity = Vector2(0.0, minf(velocity.y, -ROCKET_BOOST_SPEED))
+	velocity = Vector2(0.0, -rocket_speed)
 	player.play("walk4")
+
+
+func _deactivate_rocket() -> void:
+	rocket_time = 0.0
+	rocket_speed = 0.0
+	rocket_effect.visible = false
+	rocket_effect.stop()
+	if player.sprite_frames != null:
+		player.play("walk1" if grounded else "walk3")
 
 
 func _play_heal_effect() -> void:
@@ -1258,17 +1276,22 @@ func _capture_smoke() -> void:
 	shield_effect.visible = false
 	shield_effect.stop()
 	var hp_before_rocket := hp
-	_activate_rocket(5.0)
+	_activate_rocket(2.5, 560.0)
 	_take_damage(false)
-	assert(hp == hp_before_rocket and rocket_effect.visible and velocity.y <= -ROCKET_BOOST_SPEED, "Rocket must boost upward, show its effect and block monster damage")
+	_update_player(0.1)
+	assert(hp == hp_before_rocket and rocket_effect.visible and is_equal_approx(velocity.y, -560.0), "Rocket must sustain its configured speed, show its effect and block monster damage")
 	await get_tree().process_frame
 	await get_tree().process_frame
 	var rocket_image := get_viewport().get_texture().get_image()
 	if rocket_image != null:
 		rocket_image.save_png("res://artifacts/rocket.png")
-	rocket_time = 0.0
-	rocket_effect.visible = false
-	rocket_effect.stop()
+	rocket_time = 0.01
+	_process(0.02)
+	assert(not rocket_effect.visible and rocket_time == 0.0 and rocket_speed == 0.0, "Rocket effect must disappear as soon as propulsion ends")
+	await get_tree().process_frame
+	var rocket_end_image := get_viewport().get_texture().get_image()
+	if rocket_end_image != null:
+		rocket_end_image.save_png("res://artifacts/rocket_end.png")
 	velocity = Vector2.ZERO
 	grounded = true
 	hp = MAX_HP - 1

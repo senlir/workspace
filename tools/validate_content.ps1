@@ -148,6 +148,10 @@ $shield = $tools | Where-Object id -eq 1
 if ($shield -and ([double]$shield.value -le 0 -or [string]::IsNullOrWhiteSpace([string]$shield.mc))) {
     $warnings.Add('Tool 1 (shield) is incomplete and should not enter the drop sequence.')
 }
+$rocket = $tools | Where-Object id -eq 2
+if (-not $rocket -or [double]$rocket.value -le 0 -or [double]$rocket.speed -le 0 -or [string]::IsNullOrWhiteSpace([string]$rocket.mc)) {
+    $errors.Add('Tool 2 (rocket) requires positive duration, positive speed and an effect resource.')
+}
 
 Write-Host "Validated: $($tools.Count) tools, $($monsters.Count) monsters, $($platforms.Count) platforms, $($platformProfiles.Count) platform profiles, $($groups.Count) groups, $($tiers.Count) score tiers, $($shops.Count) shop rows."
 foreach ($warning in $warnings) { Write-Warning $warning }
