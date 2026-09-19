@@ -366,6 +366,7 @@ func _check_platform_landing(previous_position: Vector2) -> void:
 		grounded = true
 		grounded_platform = best_platform
 		player.play("walk1")
+		_play_landing_feedback()
 		if float(best_platform.get("fall_delay", 0.0)) > 0.0 and float(best_platform.get("fall_timer", -1.0)) < 0.0:
 			best_platform["fall_timer"] = float(best_platform["fall_delay"])
 
@@ -428,17 +429,63 @@ func get_launch_velocity(drag: Vector2) -> Vector2:
 
 
 func get_trajectory_points(drag: Vector2) -> Array[Vector2]:
+	return get_trajectory_prediction(drag)["points"]
+
+
+func get_trajectory_prediction(drag: Vector2) -> Dictionary:
 	var points: Array[Vector2] = []
+	var landing: Dictionary = {}
 	var launch_velocity := get_launch_velocity(drag)
 	if launch_velocity.length() < 1.0:
-		return points
-	for index in range(1, 13):
-		var time := float(index) * 0.09
+		return {"points": points, "landing": landing}
+	var previous_point := player.position
+	for index in range(1, 33):
+		var time := float(index) * 0.055
 		var point := player.position + launch_velocity * time + Vector2(0.0, GRAVITY * time * time * 0.5)
 		points.append(point)
+		if launch_velocity.y + GRAVITY * time > 0.0:
+			landing = _predicted_landing(previous_point, point)
+			if not landing.is_empty():
+				points[points.size() - 1] = landing["position"]
+				break
 		if point.y > VIEW_SIZE.y or point.x < 0.0 or point.x > VIEW_SIZE.x:
 			break
-	return points
+		previous_point = point
+	return {"points": points, "landing": landing}
+
+
+func _predicted_landing(previous_point: Vector2, point: Vector2) -> Dictionary:
+	var best_ratio := INF
+	var result: Dictionary = {}
+	var old_bottom := previous_point.y + PLAYER_RADIUS
+	var new_bottom := point.y + PLAYER_RADIUS
+	if new_bottom <= old_bottom:
+		return result
+	for group in content_groups:
+		var root: Node2D = group["root"]
+		for platform in group["platforms"]:
+			if platform.get("falling", false):
+				continue
+			var top := root.position.y + float(platform["local_y"])
+			if old_bottom > top or new_bottom < top:
+				continue
+			var ratio := (top - old_bottom) / (new_bottom - old_bottom)
+			var landing_x := lerpf(previous_point.x, point.x, ratio)
+			var left := float(platform["x"])
+			var right := left + float(platform["width"])
+			if landing_x + 22.0 < left or landing_x - 22.0 > right:
+				continue
+			if ratio < best_ratio:
+				best_ratio = ratio
+				result = {"position": Vector2(landing_x, top - PLAYER_RADIUS), "platform": platform}
+	return result
+
+
+func _play_landing_feedback() -> void:
+	player.scale = Vector2(1.12, 0.86)
+	var tween := create_tween()
+	tween.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tween.tween_property(player, "scale", Vector2.ONE, 0.16)
 
 
 func _update_aim_visual() -> void:
@@ -608,7 +655,7 @@ func _create_monster(root: Node2D, cfg: Dictionary, x: float, platforms: Array) 
 	root.add_child(sprite)
 	var direction := 1.0 if x <= 320.0 else -1.0
 	sprite.flip_h = direction > 0.0
-	return {"sprite": sprite, "cfg": cfg, "direction": direction, "active": int(cfg["movetype"]) == 1, "dead": false, "patrol_left": patrol_left, "patrol_right": patrol_right, "surface_y": surface_y, "sprite_height": sprite_height}
+	return {"sprite": sprite, "cfg": cfg, "direction": direction, "active": int(cfg["movetype"]) == 1, "dead": false, "patrol_left": patrol_left, "patrol_right": patrol_right, "surface_y": surface_y, "sprite_height": sprite_height, "anchor_platform": anchor_platform}
 
 
 func _create_pickup(root: Node2D, cfg: Dictionary, x: float, platforms: Array) -> Dictionary:
@@ -624,7 +671,7 @@ func _create_pickup(root: Node2D, cfg: Dictionary, x: float, platforms: Array) -
 	sprite.position = Vector2(x, base_y)
 	sprite.z_index = 10
 	root.add_child(sprite)
-	return {"sprite": sprite, "cfg": cfg, "taken": false, "phase": rng.randf_range(0.0, TAU), "base_y": base_y, "surface_y": surface_y, "sprite_height": sprite_height}
+	return {"sprite": sprite, "cfg": cfg, "taken": false, "phase": rng.randf_range(0.0, TAU), "base_y": base_y, "surface_y": surface_y, "sprite_height": sprite_height, "surface_offset": -30.0 - sprite_height * 0.5, "anchor_platform": anchor_platform}
 
 
 func _platform_nearest_x(platforms: Array, x: float) -> Dictionary:
@@ -650,6 +697,9 @@ func _update_monsters(delta: float) -> void:
 			if monster["dead"]:
 				sprite.position.y += 520.0 * delta
 				continue
+			var anchor_platform: Dictionary = monster["anchor_platform"]
+			monster["surface_y"] = float(anchor_platform["local_y"])
+			sprite.position.y = float(monster["surface_y"]) - float(monster["cfg"]["sky"]) - float(monster["sprite_height"]) * 0.5
 			if not monster["active"] and absf((root.position.y + sprite.position.y) - player.position.y) < 120.0 and grounded:
 				monster["active"] = true
 				monster["direction"] = 1.0 if sprite.global_position.x < player.position.x else -1.0
@@ -680,6 +730,9 @@ func _update_pickups() -> void:
 			if pickup["taken"]:
 				continue
 			var sprite: Sprite2D = pickup["sprite"]
+			var anchor_platform: Dictionary = pickup["anchor_platform"]
+			pickup["surface_y"] = float(anchor_platform["local_y"])
+			pickup["base_y"] = float(pickup["surface_y"]) + float(pickup["surface_offset"])
 			sprite.position.y = float(pickup["base_y"]) + sin(elapsed * 3.0 + float(pickup["phase"])) * 7.0
 			if _circle_intersects_rect(player.position, PLAYER_RADIUS * 0.72, _sprite_world_rect(sprite, root.position)):
 				pickup["taken"] = true
@@ -951,6 +1004,8 @@ func _capture_smoke() -> void:
 	var trajectory := get_trajectory_points(Vector2(80.0, 130.0))
 	assert(trajectory.size() >= 3, "Aiming must provide a usable trajectory preview")
 	assert((trajectory[2].y - trajectory[1].y) > (trajectory[1].y - trajectory[0].y), "Trajectory preview must include gravity")
+	var landing_prediction := get_trajectory_prediction(Vector2(30.0, 135.0))
+	assert(not landing_prediction["landing"].is_empty(), "Reachable launch arcs must identify their landing platform")
 	var last_was_double := false
 	for group in content_groups:
 		var is_double: bool = group["platforms"].size() > 1
@@ -969,13 +1024,43 @@ func _capture_smoke() -> void:
 		for pickup in group["pickups"]:
 			var pickup_bottom := float(pickup["base_y"]) + float(pickup["sprite_height"]) * 0.5
 			assert(is_equal_approx(pickup_bottom, float(pickup["surface_y"]) - 30.0), "Pickup hover height must follow the platform surface")
+	var anchor_tested := false
+	for group in content_groups:
+		if not group["monsters"].is_empty():
+			var test_monster: Dictionary = group["monsters"][0]
+			var test_anchor: Dictionary = test_monster["anchor_platform"]
+			var original_surface := float(test_anchor["local_y"])
+			var original_monster_y: float = test_monster["sprite"].position.y
+			test_anchor["local_y"] = original_surface + 12.0
+			_update_monsters(0.0)
+			assert(is_equal_approx(test_monster["sprite"].position.y, original_monster_y + 12.0), "Monsters must follow moving platforms")
+			test_anchor["local_y"] = original_surface
+			_update_monsters(0.0)
+			anchor_tested = true
+			break
+	assert(anchor_tested, "Smoke content must include an anchored monster")
+	var pickup_anchor_tested := false
+	for group in content_groups:
+		if not group["pickups"].is_empty():
+			var test_pickup: Dictionary = group["pickups"][0]
+			var pickup_anchor: Dictionary = test_pickup["anchor_platform"]
+			var pickup_surface := float(pickup_anchor["local_y"])
+			var original_base := float(test_pickup["base_y"])
+			pickup_anchor["local_y"] = pickup_surface + 12.0
+			_update_pickups()
+			assert(is_equal_approx(float(test_pickup["base_y"]), original_base + 12.0), "Pickups must follow moving platforms")
+			pickup_anchor["local_y"] = pickup_surface
+			_update_pickups()
+			pickup_anchor_tested = true
+			break
+	assert(pickup_anchor_tested, "Smoke content must include an anchored pickup")
 	await get_tree().process_frame
 	await get_tree().process_frame
 	var gameplay_image := get_viewport().get_texture().get_image()
 	if gameplay_image != null:
 		gameplay_image.save_png("res://artifacts/gameplay.png")
 	_begin_aim(Vector2(320.0, 450.0))
-	drag_position = Vector2(420.0, 585.0)
+	drag_position = Vector2(350.0, 585.0)
 	_update_launch_preview()
 	aim_layer.queue_redraw()
 	await get_tree().process_frame
@@ -1008,5 +1093,5 @@ func _capture_smoke() -> void:
 	_update_player(1.0 / 60.0)
 	assert(hp == MAX_HP - 1 and grounded, "Falling must cost one life and respawn on a safe platform")
 	assert(not grounded_platform.is_empty(), "Respawn must select a live platform")
-	print("SMOKE PASS: surface anchors, assisted gaps, trajectory, ice slide, pause and core game flow")
+	print("SMOKE PASS: landing prediction, moving anchors, assisted gaps, ice slide, pause and core game flow")
 	get_tree().quit()
