@@ -18,6 +18,7 @@ const ROUND_TIME := 180.0
 const SAVE_PATH := "user://progress.cfg"
 const ICE_SPEED := 210.0
 const LINE21_MAX_UPWARD_SPEED := 820.0
+const FALL_DEATH_MARGIN := 60.0
 
 enum GameState { HOME, PLAYING, GAME_OVER }
 
@@ -413,7 +414,7 @@ func _update_player(delta: float) -> void:
 	if player.position.y < CAMERA_LINE:
 		_scroll_world(CAMERA_LINE - player.position.y)
 		player.position.y = CAMERA_LINE
-	if player.position.y > VIEW_SIZE.y + 80.0:
+	if player.position.y > VIEW_SIZE.y + FALL_DEATH_MARGIN:
 		_take_damage(true)
 	if not grounded:
 		player.flip_h = velocity.x < 0.0
@@ -1344,9 +1345,14 @@ func _capture_smoke() -> void:
 	grounded_platform = {"id": 24, "slide_direction": 1.0}
 	_update_player(0.2)
 	assert(player.position.x > ice_start_x, "Ice platforms must slide the grounded player")
-	player.position.y = VIEW_SIZE.y + 100.0
-	_update_player(1.0 / 60.0)
-	assert(hp == MAX_HP - 1 and grounded, "Falling must cost one life and respawn on a safe platform")
+	hurt_cooldown = 0.0
+	var hp_before_fall := hp
+	player.position.y = VIEW_SIZE.y + FALL_DEATH_MARGIN
+	_update_player(0.0)
+	assert(hp == hp_before_fall, "The exact fall margin must remain safe")
+	player.position.y = VIEW_SIZE.y + FALL_DEATH_MARGIN + 1.0
+	_update_player(0.0)
+	assert(hp == hp_before_fall - 1 and grounded, "Crossing the fall margin must cost one life and respawn safely")
 	assert(not grounded_platform.is_empty(), "Respawn must select a live platform")
 	print("SMOKE PASS: restart stability, scoring tiers, landing prediction, moving anchors and core game flow")
 	get_tree().quit()
