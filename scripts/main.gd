@@ -18,6 +18,7 @@ const ROUND_TIME := 180.0
 const SAVE_PATH := "user://progress.cfg"
 const ICE_SPEED := 210.0
 const LINE21_MAX_UPWARD_SPEED := 820.0
+const ROCKET_BOOST_SPEED := 1150.0
 
 enum GameState { HOME, PLAYING, GAME_OVER }
 
@@ -31,6 +32,8 @@ var background_layer := Node2D.new()
 var content_layer := Node2D.new()
 var player := AnimatedSprite2D.new()
 var shield_effect := AnimatedSprite2D.new()
+var rocket_effect := AnimatedSprite2D.new()
+var heal_effect := AnimatedSprite2D.new()
 var aim_layer = AimOverlayClass.new()
 var hud := CanvasLayer.new()
 var home := CanvasLayer.new()
@@ -117,6 +120,28 @@ func _build_world() -> void:
 	shield_effect.z_index = -1
 	shield_effect.visible = false
 	player.add_child(shield_effect)
+	rocket_effect.sprite_frames = atlas.movie_frames(
+		"res://assets/animations/effects/huojian.png",
+		"res://assets/animations/effects/huojian.json",
+		"walk"
+	)
+	rocket_effect.animation = "huojian"
+	rocket_effect.position = Vector2(0.0, 138.0)
+	rocket_effect.z_index = -2
+	rocket_effect.visible = false
+	player.add_child(rocket_effect)
+	heal_effect.sprite_frames = atlas.movie_frames(
+		"res://assets/animations/effects/jiaxue.png",
+		"res://assets/animations/effects/jiaxue.json",
+		"walk"
+	)
+	heal_effect.sprite_frames.set_animation_loop("jiaxue", false)
+	heal_effect.animation = "jiaxue"
+	heal_effect.position = Vector2(0.0, -70.0)
+	heal_effect.z_index = 2
+	heal_effect.visible = false
+	heal_effect.animation_finished.connect(_on_heal_animation_finished)
+	player.add_child(heal_effect)
 
 
 func _build_home() -> void:
@@ -319,6 +344,10 @@ func start_game() -> void:
 	player.scale = Vector2.ONE
 	shield_effect.visible = false
 	shield_effect.stop()
+	rocket_effect.visible = false
+	rocket_effect.stop()
+	heal_effect.visible = false
+	heal_effect.stop()
 	player.modulate = Color.WHITE
 	player.play("walk1")
 	hint_label.visible = true
@@ -337,6 +366,9 @@ func _process(delta: float) -> void:
 	if shield_time <= 0.0 and shield_effect.visible:
 		shield_effect.visible = false
 		shield_effect.stop()
+	if rocket_time <= 0.0 and rocket_effect.visible:
+		rocket_effect.visible = false
+		rocket_effect.stop()
 	tier_notice_time = maxf(0.0, tier_notice_time - delta)
 	tier_notice_label.visible = tier_notice_time > 0.0
 	if rocket_time > 0.0:
@@ -794,7 +826,7 @@ func _apply_pickup(cfg: Dictionary) -> void:
 		1:
 			_activate_shield(float(cfg["value"]) / 1000.0)
 		2:
-			rocket_time = maxf(rocket_time, float(cfg["value"]) / 1000.0)
+			_activate_rocket(float(cfg["value"]) / 1000.0)
 		3:
 			time_left = minf(ROUND_TIME, time_left + float(cfg["value"]))
 		4:
@@ -802,11 +834,12 @@ func _apply_pickup(cfg: Dictionary) -> void:
 				_add_score(10)
 			else:
 				hp += int(cfg["value"])
+				_play_heal_effect()
 		5:
 			energy = mini(5, energy + int(cfg["value"]))
 			if energy >= 5:
 				energy = 0
-				rocket_time = 5.0
+				_activate_rocket(5.0)
 	_add_score(10)
 	_play_sound(2)
 
@@ -964,6 +997,28 @@ func _activate_shield(duration: float) -> void:
 	shield_effect.play("hudun")
 
 
+func _activate_rocket(duration: float) -> void:
+	rocket_time = maxf(rocket_time, duration)
+	rocket_effect.visible = true
+	rocket_effect.play("huojian")
+	grounded = false
+	grounded_platform = {}
+	aiming = false
+	velocity = Vector2(0.0, minf(velocity.y, -ROCKET_BOOST_SPEED))
+	player.play("walk4")
+
+
+func _play_heal_effect() -> void:
+	heal_effect.visible = true
+	heal_effect.stop()
+	heal_effect.play("jiaxue")
+
+
+func _on_heal_animation_finished() -> void:
+	if heal_effect.animation == "jiaxue":
+		heal_effect.visible = false
+
+
 func _update_aim_layer_draw() -> void:
 	pass
 
@@ -1077,6 +1132,9 @@ func _capture_smoke() -> void:
 	start_game()
 	assert(content_groups.size() >= 9, "Expected initial content groups")
 	assert(shield_effect.sprite_frames.has_animation("hudun") and shield_effect.sprite_frames.get_frame_count("hudun") == 5, "Shield effect must load all five animation frames")
+	assert(rocket_effect.sprite_frames.has_animation("huojian") and rocket_effect.sprite_frames.get_frame_count("huojian") == 2, "Rocket effect must load both animation frames")
+	assert(heal_effect.sprite_frames.has_animation("jiaxue") and heal_effect.sprite_frames.get_frame_count("jiaxue") == 8, "Heal effect must load all eight animation frames")
+	assert(not heal_effect.sprite_frames.get_animation_loop("jiaxue"), "Heal effect must play only once")
 	var shield_available := false
 	for slot in db.get_tier(300)["tool_slots"]:
 		if 1 in slot:
@@ -1199,6 +1257,29 @@ func _capture_smoke() -> void:
 	shield_time = 0.0
 	shield_effect.visible = false
 	shield_effect.stop()
+	var hp_before_rocket := hp
+	_activate_rocket(5.0)
+	_take_damage(false)
+	assert(hp == hp_before_rocket and rocket_effect.visible and velocity.y <= -ROCKET_BOOST_SPEED, "Rocket must boost upward, show its effect and block monster damage")
+	await get_tree().process_frame
+	await get_tree().process_frame
+	var rocket_image := get_viewport().get_texture().get_image()
+	if rocket_image != null:
+		rocket_image.save_png("res://artifacts/rocket.png")
+	rocket_time = 0.0
+	rocket_effect.visible = false
+	rocket_effect.stop()
+	velocity = Vector2.ZERO
+	grounded = true
+	hp = MAX_HP - 1
+	_apply_pickup(db.tools[4])
+	assert(hp == MAX_HP and heal_effect.visible, "Healing must restore life and play its effect")
+	await get_tree().create_timer(0.35).timeout
+	var heal_image := get_viewport().get_texture().get_image()
+	if heal_image != null:
+		heal_image.save_png("res://artifacts/heal.png")
+	await heal_effect.animation_finished
+	assert(not heal_effect.visible, "Heal effect must hide after its one-shot animation finishes")
 	var ice_start_x := player.position.x
 	grounded_platform = {"id": 24, "slide_direction": 1.0}
 	_update_player(0.2)
