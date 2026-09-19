@@ -30,12 +30,13 @@
 
 ## AI 开发工作流
 
-项目内置 LangGraph 的 `提案 -> 讨论 -> 实现 -> 验证` 工作流，可切换 OpenAI、MiniMax 或无密钥的 mock 提供方：
+项目内置 LangGraph 的 `提案 -> 审稿 -> 实现 -> 验证` 工作流，可切换 OpenAI、MiniMax 或无密钥的 mock 提供方，并支持审稿代理自动批改：
 
 ```powershell
 py -3 -m venv .venv
 & '.\.venv\Scripts\python.exe' -m pip install -r requirements-workflow.txt
 & '.\.venv\Scripts\python.exe' -m tools.dev_workflow.cli start '描述本次开发目标' --provider mock
+& '.\.venv\Scripts\python.exe' -m tools.dev_workflow.cli start '描述本次开发目标' --provider minimax --auto-review --apply
 ```
 
 配置、审批和恢复命令见 [`tools/dev_workflow/README.md`](tools/dev_workflow/README.md)。

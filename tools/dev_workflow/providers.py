@@ -75,6 +75,8 @@ class ModelGateway:
             return "Mock implementation selected. No patch was generated."
         if phase == "validation":
             return "Mock review: validation output was recorded; inspect command exit codes."
+        if phase == "review":
+            return '{"verdict":"approve","critique":"Mock reviewer approved the scoped proposal.","feedback":""}'
         if phase == "discussion":
             return "Mock critique: confirm scope, acceptance criteria, rollback plan, and tests before approval."
         request = prompt.split("REQUEST:", 1)[-1].split("\n", 1)[0].strip()

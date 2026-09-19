@@ -22,16 +22,21 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Proposal-discussion-implementation-validation workflow")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    start = subparsers.add_parser("start", help="Create a workflow and pause for discussion")
+    start = subparsers.add_parser("start", help="Create a workflow")
     start.add_argument("request")
     start.add_argument("--thread", default=None)
     start.add_argument("--provider", choices=["openai", "minimax", "mock"], default=None)
+    start.add_argument("--auto-review", action="store_true", help="Let the reviewer revise proposals until approved")
+    start.add_argument("--max-revisions", type=int, default=None)
+    start.add_argument("--apply", action="store_true", help="Apply an auto-approved generated diff")
 
     resume = subparsers.add_parser("resume", help="Resume the human discussion checkpoint")
     resume.add_argument("thread")
     resume.add_argument("--decision", choices=["approve", "revise", "reject"], required=True)
     resume.add_argument("--feedback", default="")
     resume.add_argument("--apply", action="store_true", help="Apply the generated diff before validation")
+    resume.add_argument("--auto-review", action="store_true", help="Enable reviewer-driven revisions after this decision")
+    resume.add_argument("--max-revisions", type=int, default=None)
 
     status = subparsers.add_parser("status", help="Inspect persisted workflow state")
     status.add_argument("thread")
@@ -54,8 +59,18 @@ def main() -> int:
         if args.command == "start":
             thread = args.thread or uuid.uuid4().hex[:12]
             provider = args.provider or os.getenv("DEVFLOW_PROVIDER") or config.get("provider", "mock")
+            configured_revisions = int(config.get("auto_review", {}).get("max_revisions", 3))
             result = graph.invoke(
-                {"request": args.request, "thread_id": thread, "provider": provider, "revision": 0},
+                {
+                    "request": args.request,
+                    "thread_id": thread,
+                    "provider": provider,
+                    "revision": 0,
+                    "auto_review": args.auto_review,
+                    "max_auto_revisions": args.max_revisions or configured_revisions,
+                    "auto_review_round": 0,
+                    "apply_changes": args.apply,
+                },
                 {"configurable": {"thread_id": thread}},
             )
             print_result(thread, result)
@@ -67,6 +82,8 @@ def main() -> int:
                         "decision": args.decision,
                         "feedback": args.feedback,
                         "apply_changes": args.apply,
+                        "auto_review": args.auto_review,
+                        "max_auto_revisions": args.max_revisions or int(config.get("auto_review", {}).get("max_revisions", 3)),
                     }
                 ),
                 {"configurable": {"thread_id": args.thread}},
@@ -88,6 +105,7 @@ def print_result(thread: str, result: dict) -> None:
         value = interrupts[0].value
         print("\n--- proposal ---\n" + value["proposal"])
         print("\n--- critique ---\n" + value["critique"])
+        print(f"\nreview verdict: {value.get('review_verdict', 'human')} (revision {value.get('revision', '?')})")
         print(f"\nResume with: python -m tools.dev_workflow.cli resume {thread} --decision approve [--apply]")
     elif result.get("validation_review"):
         print("\n--- validation review ---\n" + result["validation_review"])

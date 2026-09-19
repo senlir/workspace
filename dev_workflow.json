@@ -3,6 +3,7 @@
   "models": {
     "proposal": "gpt-5",
     "discussion": "gpt-5",
+    "review": "gpt-5",
     "implementation": "gpt-5",
     "validation": "gpt-5"
   },
@@ -13,6 +14,9 @@
   "context": {
     "max_chars": 120000,
     "extensions": [".gd", ".tscn", ".json", ".md", ".ps1", ".cfg"]
+  },
+  "auto_review": {
+    "max_revisions": 3
   },
   "validation_commands": [
     ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "tools/validate_content.ps1"],

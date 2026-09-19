@@ -19,6 +19,11 @@ class WorkflowState(TypedDict, total=False):
     critique: str
     feedback: str
     review_decision: str
+    review_verdict: str
+    review_feedback: str
+    auto_review: bool
+    max_auto_revisions: int
+    auto_review_round: int
     apply_changes: bool
     implementation: str
     patch: str
@@ -48,7 +53,11 @@ class DevelopmentWorkflow:
         graph.add_node("validation_review", self.validation_review)
         graph.add_edge(START, "proposal")
         graph.add_edge("proposal", "critique")
-        graph.add_edge("critique", "discussion")
+        graph.add_conditional_edges(
+            "critique",
+            self.route_after_review,
+            {"discussion": "discussion", "proposal": "proposal", "implementation": "implementation"},
+        )
         graph.add_edge("implementation", "apply")
         graph.add_edge("apply", "validation")
         graph.add_edge("validation", "validation_review")
@@ -65,18 +74,51 @@ class DevelopmentWorkflow:
             "You are a senior game engineer. Produce a scoped proposal with risks, files, acceptance criteria, and tests. Do not write code yet.",
             prompt,
         )
+        revision = state.get("revision", 0) + 1
         self._write_artifact(state, "proposal.md", proposal)
-        return {"proposal": proposal, "status": "proposal", "revision": state.get("revision", 0) + 1}
+        self._write_artifact(state, f"proposal-r{revision}.md", proposal)
+        return {"proposal": proposal, "status": "proposal", "revision": revision}
 
     def critique(self, state: WorkflowState) -> dict[str, Any]:
-        critique = self.models.complete(
-            "discussion",
+        context = repository_context(self.root, self.config)
+        raw_review = self.models.complete(
+            "review",
             state.get("provider", ""),
-            "Review a development proposal. Identify missing requirements, regressions, unsafe scope, and weak validation. Be concise.",
-            f"REQUEST:\n{state['request']}\n\nPROPOSAL:\n{state['proposal']}",
+            (
+                "You are an independent senior reviewer. Check the proposal against the repository. "
+                "Return JSON only with keys verdict, critique, and feedback. verdict must be approve or revise. "
+                "Approve only when there are no blocking or high-risk correctness, scope, rollback, or validation issues. "
+                "feedback must be concrete instructions the proposal author can apply in the next revision."
+            ),
+            (
+                f"REVISION: {state.get('revision', 1)}\nREQUEST:\n{state['request']}\n\n"
+                f"PROPOSAL:\n{state['proposal']}\n\nREPOSITORY:\n{context}"
+            ),
         )
+        review = self._parse_review(raw_review)
+        critique = review["critique"]
+        review_round = state.get("auto_review_round", 0) + 1 if state.get("auto_review", False) else 0
         self._write_artifact(state, "discussion.md", critique)
-        return {"critique": critique, "status": "discussion"}
+        self._write_artifact(state, f"review-r{state.get('revision', 1)}.json", json.dumps(review, ensure_ascii=False, indent=2))
+        return {
+            "critique": critique,
+            "review_verdict": review["verdict"],
+            "review_feedback": review["feedback"],
+            "feedback": review["feedback"],
+            "auto_review_round": review_round,
+            "status": "review",
+        }
+
+    def route_after_review(self, state: WorkflowState) -> Literal["discussion", "proposal", "implementation"]:
+        if not state.get("auto_review", False):
+            return "discussion"
+        verdict = state.get("review_verdict", "human")
+        if verdict == "approve":
+            return "implementation"
+        max_revisions = max(1, state.get("max_auto_revisions", 3))
+        if verdict == "revise" and state.get("auto_review_round", 0) < max_revisions:
+            return "proposal"
+        return "discussion"
 
     def discussion(self, state: WorkflowState) -> Command[Literal["proposal", "implementation", "__end__"]]:
         answer = interrupt(
@@ -84,6 +126,9 @@ class DevelopmentWorkflow:
                 "phase": "discussion",
                 "proposal": state["proposal"],
                 "critique": state["critique"],
+                "review_verdict": state.get("review_verdict", "human"),
+                "revision": state.get("revision", 0),
+                "auto_review_round": state.get("auto_review_round", 0),
                 "choices": ["approve", "revise", "reject"],
             }
         )
@@ -92,12 +137,32 @@ class DevelopmentWorkflow:
             "review_decision": decision,
             "feedback": str(answer.get("feedback", "")),
             "apply_changes": bool(answer.get("apply_changes", False)),
+            "auto_review": bool(answer.get("auto_review", state.get("auto_review", False))),
+            "max_auto_revisions": max(1, int(answer.get("max_auto_revisions", state.get("max_auto_revisions", 3)))),
+            "auto_review_round": 0 if bool(answer.get("auto_review", False)) else state.get("auto_review_round", 0),
         }
         if decision == "approve":
             return Command(update=update, goto="implementation")
         if decision == "revise":
             return Command(update=update, goto="proposal")
         return Command(update={**update, "status": "rejected"}, goto=END)
+
+    @staticmethod
+    def _parse_review(content: str) -> dict[str, str]:
+        cleaned = content.strip()
+        if cleaned.startswith("```"):
+            cleaned = cleaned.split("\n", 1)[1] if "\n" in cleaned else ""
+            cleaned = cleaned.rsplit("```", 1)[0].strip()
+        try:
+            value = json.loads(cleaned)
+        except (json.JSONDecodeError, TypeError):
+            return {"verdict": "human", "critique": content.strip(), "feedback": ""}
+        verdict = str(value.get("verdict", "human")).lower()
+        if verdict not in {"approve", "revise"}:
+            verdict = "human"
+        critique = str(value.get("critique", "")).strip() or content.strip()
+        feedback = str(value.get("feedback", "")).strip()
+        return {"verdict": verdict, "critique": critique, "feedback": feedback}
 
     def implementation(self, state: WorkflowState) -> dict[str, Any]:
         context = repository_context(self.root, self.config)
