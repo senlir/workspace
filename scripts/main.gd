@@ -19,6 +19,8 @@ const SAVE_PATH := "user://progress.cfg"
 const ICE_SPEED := 210.0
 const LINE21_MAX_UPWARD_SPEED := 820.0
 const FALL_DEATH_MARGIN := 60.0
+const WALL_BOUNCE_DAMPING := 0.72
+const WALL_FEEDBACK_MIN_SPEED := 40.0
 
 enum GameState { HOME, PLAYING, GAME_OVER }
 
@@ -41,6 +43,9 @@ var game_over_panel := CanvasLayer.new()
 var music_player := AudioStreamPlayer.new()
 
 var background_sprites: Array[Sprite2D] = []
+var wall_sprites: Array[Sprite2D] = []
+var left_wall_inner_x := 0.0
+var right_wall_inner_x := VIEW_SIZE.x
 var content_groups: Array[Dictionary] = []
 var velocity := Vector2.ZERO
 var grounded := true
@@ -405,12 +410,7 @@ func _update_player(delta: float) -> void:
 			velocity.y += GRAVITY * delta
 		player.position += velocity * delta
 		_check_platform_landing(previous_position)
-	if player.position.x < PLAYER_RADIUS:
-		player.position.x = PLAYER_RADIUS
-		velocity.x = absf(velocity.x) * 0.72
-	elif player.position.x > VIEW_SIZE.x - PLAYER_RADIUS:
-		player.position.x = VIEW_SIZE.x - PLAYER_RADIUS
-		velocity.x = -absf(velocity.x) * 0.72
+	_resolve_wall_collision()
 	if player.position.y < CAMERA_LINE:
 		_scroll_world(CAMERA_LINE - player.position.y)
 		player.position.y = CAMERA_LINE
@@ -418,6 +418,32 @@ func _update_player(delta: float) -> void:
 		_take_damage(true)
 	if not grounded:
 		player.flip_h = velocity.x < 0.0
+
+
+func _resolve_wall_collision() -> void:
+	var left_limit := left_wall_inner_x + PLAYER_RADIUS
+	var right_limit := right_wall_inner_x - PLAYER_RADIUS
+	if player.position.x < left_limit:
+		var impact_speed := absf(velocity.x)
+		player.position.x = left_limit
+		velocity.x = 0.0 if grounded else absf(velocity.x) * WALL_BOUNCE_DAMPING
+		if impact_speed > WALL_FEEDBACK_MIN_SPEED:
+			_play_wall_block_feedback(0)
+	elif player.position.x > right_limit:
+		var impact_speed := absf(velocity.x)
+		player.position.x = right_limit
+		velocity.x = 0.0 if grounded else -absf(velocity.x) * WALL_BOUNCE_DAMPING
+		if impact_speed > WALL_FEEDBACK_MIN_SPEED:
+			_play_wall_block_feedback(1)
+
+
+func _play_wall_block_feedback(side: int) -> void:
+	if side < 0 or side >= wall_sprites.size():
+		return
+	var wall := wall_sprites[side]
+	wall.modulate = Color("ffe08a")
+	var tween := create_tween()
+	tween.tween_property(wall, "modulate", Color.WHITE, 0.16)
 
 
 func _check_platform_landing(previous_position: Vector2) -> void:
@@ -522,19 +548,29 @@ func get_trajectory_prediction(drag: Vector2) -> Dictionary:
 	var launch_velocity := get_launch_velocity(drag)
 	if launch_velocity.length() < 1.0:
 		return {"points": points, "landing": landing}
-	var previous_point := player.position
-	for index in range(1, 33):
-		var time := float(index) * 0.055
-		var point := player.position + launch_velocity * time + Vector2(0.0, GRAVITY * time * time * 0.5)
+	var point := player.position
+	var simulated_velocity := launch_velocity
+	var step := 0.055
+	for _index in range(32):
+		var previous_point := point
+		point += simulated_velocity * step + Vector2(0.0, GRAVITY * step * step * 0.5)
+		simulated_velocity.y += GRAVITY * step
+		var left_limit := left_wall_inner_x + PLAYER_RADIUS
+		var right_limit := right_wall_inner_x - PLAYER_RADIUS
+		if point.x < left_limit:
+			point.x = left_limit
+			simulated_velocity.x = absf(simulated_velocity.x) * WALL_BOUNCE_DAMPING
+		elif point.x > right_limit:
+			point.x = right_limit
+			simulated_velocity.x = -absf(simulated_velocity.x) * WALL_BOUNCE_DAMPING
 		points.append(point)
-		if launch_velocity.y + GRAVITY * time > 0.0:
+		if simulated_velocity.y > 0.0:
 			landing = _predicted_landing(previous_point, point)
 			if not landing.is_empty():
 				points[points.size() - 1] = landing["position"]
 				break
-		if point.y > VIEW_SIZE.y or point.x < 0.0 or point.x > VIEW_SIZE.x:
+		if point.y > VIEW_SIZE.y:
 			break
-		previous_point = point
 	return {"points": points, "landing": landing}
 
 
@@ -956,6 +992,9 @@ func _create_backgrounds() -> void:
 	for child in background_layer.get_children():
 		child.queue_free()
 	background_sprites.clear()
+	wall_sprites.clear()
+	left_wall_inner_x = 0.0
+	right_wall_inner_x = VIEW_SIZE.x
 	for index in range(3):
 		var sprite := Sprite2D.new()
 		sprite.texture = load("res://assets/backgrounds/bg1.jpg" if index == 2 else "res://assets/backgrounds/bg2.jpg")
@@ -970,6 +1009,11 @@ func _create_backgrounds() -> void:
 		wall.position = Vector2(0.0 if side == 0 else VIEW_SIZE.x - wall.texture.get_width(), 0.0)
 		wall.z_index = 4
 		background_layer.add_child(wall)
+		wall_sprites.append(wall)
+		if side == 0:
+			left_wall_inner_x = float(wall.texture.get_width())
+		else:
+			right_wall_inner_x = wall.position.x
 
 
 func _clear_content() -> void:
@@ -1199,6 +1243,28 @@ func _capture_smoke() -> void:
 	var trajectory := get_trajectory_points(Vector2(80.0, 130.0))
 	assert(trajectory.size() >= 3, "Aiming must provide a usable trajectory preview")
 	assert((trajectory[2].y - trajectory[1].y) > (trajectory[1].y - trajectory[0].y), "Trajectory preview must include gravity")
+	assert(wall_sprites.size() == 2 and left_wall_inner_x > 0.0 and right_wall_inner_x < VIEW_SIZE.x, "Both wall visuals must define solid inner edges")
+	var wall_test_position := player.position
+	var wall_test_velocity := velocity
+	var wall_test_grounded := grounded
+	var wall_test_platform := grounded_platform
+	grounded = false
+	grounded_platform = {}
+	player.position.x = left_wall_inner_x + PLAYER_RADIUS - 10.0
+	velocity = Vector2(-300.0, 0.0)
+	_update_player(0.0)
+	assert(is_equal_approx(player.position.x, left_wall_inner_x + PLAYER_RADIUS) and velocity.x > 0.0, "The left wall must block and rebound the player")
+	player.position.x = right_wall_inner_x - PLAYER_RADIUS + 10.0
+	velocity = Vector2(300.0, 0.0)
+	_update_player(0.0)
+	assert(is_equal_approx(player.position.x, right_wall_inner_x - PLAYER_RADIUS) and velocity.x < 0.0, "The right wall must block and rebound the player")
+	assert(wall_sprites[0].modulate != Color.WHITE and wall_sprites[1].modulate != Color.WHITE, "Wall impacts must trigger visible feedback")
+	player.position = wall_test_position
+	velocity = wall_test_velocity
+	grounded = wall_test_grounded
+	grounded_platform = wall_test_platform
+	for trajectory_point in get_trajectory_points(Vector2(MAX_DRAG, 0.0)):
+		assert(trajectory_point.x >= left_wall_inner_x + PLAYER_RADIUS and trajectory_point.x <= right_wall_inner_x - PLAYER_RADIUS, "Trajectory prediction must respect wall blockers")
 	var landing_prediction := get_trajectory_prediction(Vector2(30.0, 135.0))
 	assert(not landing_prediction["landing"].is_empty(), "Reachable launch arcs must identify their landing platform")
 	var original_grounded_platform := grounded_platform
