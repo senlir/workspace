@@ -11,6 +11,7 @@ const MAX_LAUNCH_SPEED := 980.0
 const MAX_DRAG := 150.0
 const CAMERA_LINE := 500.0
 const GROUP_GAP := 195.0
+const SHORT_PLATFORM_GAP := 160.0
 const MAX_HP := 4
 const ROUND_TIME := 180.0
 const SAVE_PATH := "user://progress.cfg"
@@ -55,6 +56,7 @@ var previous_group_was_double := false
 var high_score := 0
 var sound_enabled := true
 var paused_by_player := false
+var smoke_test_mode := false
 
 var score_label: Label
 var timer_label: Label
@@ -69,6 +71,7 @@ var sound_buttons: Array[Button] = []
 
 
 func _ready() -> void:
+	smoke_test_mode = "--capture-smoke" in OS.get_cmdline_user_args()
 	rng.randomize()
 	_load_progress()
 	db.load_all()
@@ -79,7 +82,7 @@ func _ready() -> void:
 	_build_pause_overlay()
 	_build_audio()
 	show_home()
-	if "--capture-smoke" in OS.get_cmdline_user_args():
+	if smoke_test_mode:
 		call_deferred("_capture_smoke")
 
 
@@ -464,10 +467,9 @@ func _scroll_world(amount: float) -> void:
 
 func _spawn_initial_content() -> void:
 	_spawn_safe_group(910.0)
-	highest_group_y = 715.0
+	highest_group_y = 910.0
 	for index in range(8):
-		_spawn_config_group(highest_group_y)
-		highest_group_y -= GROUP_GAP
+		highest_group_y = _spawn_config_group(highest_group_y)
 
 
 func _spawn_safe_group(y: float) -> void:
@@ -478,7 +480,7 @@ func _spawn_safe_group(y: float) -> void:
 	content_groups.append({"root": root, "platforms": [platform], "monsters": [], "pickups": [], "scored": false})
 
 
-func _spawn_config_group(y: float) -> void:
+func _spawn_config_group(lower_group_y: float) -> float:
 	var tier: Dictionary = db.get_tier(score)
 	var tier_score := int(tier["score"])
 	if tier_score != current_tier_score:
@@ -501,8 +503,12 @@ func _spawn_config_group(y: float) -> void:
 	tier_slot += 1
 	var cfg: Dictionary = db.groups[group_id]
 	previous_group_was_double = int(cfg["shuzhi2"]) > 0
+	var target_width := float(db.platforms[int(cfg["shuzhi1"])]["lang"])
+	if int(cfg["shuzhi2"]) > 0:
+		target_width += float(db.platforms[int(cfg["shuzhi2"])]["lang"])
+	var group_gap := SHORT_PLATFORM_GAP if target_width < VIEW_SIZE.x else GROUP_GAP
 	var root := Node2D.new()
-	root.position.y = y
+	root.position.y = lower_group_y - group_gap
 	content_layer.add_child(root)
 	var platforms: Array = []
 	var monsters: Array = []
@@ -519,10 +525,11 @@ func _spawn_config_group(y: float) -> void:
 		var monster_id := int(cfg[monster_field])
 		if monster_id > 0:
 			var x_field := "guaiwu1x" if monster_field == "guaiwu1" else "guaiwu2x"
-			monsters.append(_create_monster(root, db.monsters[monster_id], float(cfg[x_field])))
+			monsters.append(_create_monster(root, db.monsters[monster_id], float(cfg[x_field]), platforms))
 	if tool_id > 0 and db.tools.has(tool_id):
-		pickups.append(_create_pickup(root, db.tools[tool_id], float([200, 260, 320, 380, 440][rng.randi_range(0, 4)])))
-	content_groups.append({"root": root, "platforms": platforms, "monsters": monsters, "pickups": pickups, "scored": false, "id": group_id})
+		pickups.append(_create_pickup(root, db.tools[tool_id], float([200, 260, 320, 380, 440][rng.randi_range(0, 4)]), platforms))
+	content_groups.append({"root": root, "platforms": platforms, "monsters": monsters, "pickups": pickups, "scored": false, "id": group_id, "gap": group_gap})
+	return root.position.y
 
 
 func _create_platform(root: Node2D, cfg: Dictionary, start_x: float, local_y: float, mirrored: bool) -> Dictionary:
@@ -580,7 +587,7 @@ func _update_platforms(delta: float) -> void:
 				sprite.position.y = float(platform["local_y"]) - float(platform["surface_y"])
 
 
-func _create_monster(root: Node2D, cfg: Dictionary, x: float) -> Dictionary:
+func _create_monster(root: Node2D, cfg: Dictionary, x: float, platforms: Array) -> Dictionary:
 	var name := str(cfg["img"])
 	var sprite := AnimatedSprite2D.new()
 	sprite.sprite_frames = atlas.movie_frames(
@@ -588,22 +595,51 @@ func _create_monster(root: Node2D, cfg: Dictionary, x: float) -> Dictionary:
 		"res://assets/animations/enemies/%s.json" % name,
 		"walk"
 	)
+	var anchor_platform := _platform_nearest_x(platforms, x)
+	var frame_texture := sprite.sprite_frames.get_frame_texture("walk", 0)
+	var sprite_height: float = float(frame_texture.get_height()) if frame_texture != null else 80.0
+	var surface_y := float(anchor_platform.get("local_y", 0.0))
+	var patrol_left := float(anchor_platform.get("x", 40.0))
+	var patrol_right := patrol_left + float(anchor_platform.get("width", VIEW_SIZE.x - 80.0))
+	x = clampf(x, patrol_left + 20.0, patrol_right - 20.0)
 	sprite.play("walk")
-	sprite.position = Vector2(x, -50.0 - float(cfg["sky"]))
+	sprite.position = Vector2(x, surface_y - float(cfg["sky"]) - sprite_height * 0.5)
 	sprite.z_index = 8
 	root.add_child(sprite)
 	var direction := 1.0 if x <= 320.0 else -1.0
 	sprite.flip_h = direction > 0.0
-	return {"sprite": sprite, "cfg": cfg, "direction": direction, "active": int(cfg["movetype"]) == 1, "dead": false}
+	return {"sprite": sprite, "cfg": cfg, "direction": direction, "active": int(cfg["movetype"]) == 1, "dead": false, "patrol_left": patrol_left, "patrol_right": patrol_right, "surface_y": surface_y, "sprite_height": sprite_height}
 
 
-func _create_pickup(root: Node2D, cfg: Dictionary, x: float) -> Dictionary:
+func _create_pickup(root: Node2D, cfg: Dictionary, x: float, platforms: Array) -> Dictionary:
 	var sprite := Sprite2D.new()
 	sprite.texture = atlas.frame("res://assets/ui/game1.png", "res://assets/ui/game1.json", str(cfg["img"]))
-	sprite.position = Vector2(x, -80.0)
+	var anchor_platform := _platform_nearest_x(platforms, x)
+	var left := float(anchor_platform.get("x", 0.0))
+	var right := left + float(anchor_platform.get("width", VIEW_SIZE.x))
+	x = clampf(x, left + 20.0, right - 20.0)
+	var surface_y := float(anchor_platform.get("local_y", 0.0))
+	var sprite_height: float = float(sprite.texture.get_height()) if sprite.texture != null else 40.0
+	var base_y: float = surface_y - 30.0 - sprite_height * 0.5
+	sprite.position = Vector2(x, base_y)
 	sprite.z_index = 10
 	root.add_child(sprite)
-	return {"sprite": sprite, "cfg": cfg, "taken": false, "phase": rng.randf_range(0.0, TAU)}
+	return {"sprite": sprite, "cfg": cfg, "taken": false, "phase": rng.randf_range(0.0, TAU), "base_y": base_y, "surface_y": surface_y, "sprite_height": sprite_height}
+
+
+func _platform_nearest_x(platforms: Array, x: float) -> Dictionary:
+	var nearest: Dictionary = {}
+	var nearest_distance := INF
+	for platform in platforms:
+		var left := float(platform["x"])
+		var right := left + float(platform["width"])
+		if x >= left and x <= right:
+			return platform
+		var distance := absf(x - (left + right) * 0.5)
+		if distance < nearest_distance:
+			nearest_distance = distance
+			nearest = platform
+	return nearest
 
 
 func _update_monsters(delta: float) -> void:
@@ -619,9 +655,9 @@ func _update_monsters(delta: float) -> void:
 				monster["direction"] = 1.0 if sprite.global_position.x < player.position.x else -1.0
 			if monster["active"]:
 				sprite.position.x += float(monster["direction"]) * float(monster["cfg"]["speed"]) * 34.0 * delta
-				if sprite.position.x < 45.0:
+				if sprite.position.x < float(monster["patrol_left"]) + 20.0:
 					monster["direction"] = 1.0
-				elif sprite.position.x > VIEW_SIZE.x - 45.0:
+				elif sprite.position.x > float(monster["patrol_right"]) - 20.0:
 					monster["direction"] = -1.0
 				sprite.flip_h = float(monster["direction"]) > 0.0
 			var monster_rect := _sprite_world_rect(sprite, root.position)
@@ -644,7 +680,7 @@ func _update_pickups() -> void:
 			if pickup["taken"]:
 				continue
 			var sprite: Sprite2D = pickup["sprite"]
-			sprite.position.y = -80.0 + sin(elapsed * 3.0 + float(pickup["phase"])) * 7.0
+			sprite.position.y = float(pickup["base_y"]) + sin(elapsed * 3.0 + float(pickup["phase"])) * 7.0
 			if _circle_intersects_rect(player.position, PLAYER_RADIUS * 0.72, _sprite_world_rect(sprite, root.position)):
 				pickup["taken"] = true
 				sprite.visible = false
@@ -745,8 +781,7 @@ func _cleanup_and_spawn() -> void:
 			root.queue_free()
 			content_groups.remove_at(index)
 	while highest_group_y > -GROUP_GAP:
-		highest_group_y -= GROUP_GAP
-		_spawn_config_group(highest_group_y)
+		highest_group_y = _spawn_config_group(highest_group_y)
 
 
 func _create_backgrounds() -> void:
@@ -850,7 +885,7 @@ func _toggle_pause() -> void:
 
 
 func _notification(what: int) -> void:
-	if what == NOTIFICATION_APPLICATION_FOCUS_OUT and state == GameState.PLAYING and not paused_by_player:
+	if not smoke_test_mode and what == NOTIFICATION_APPLICATION_FOCUS_OUT and state == GameState.PLAYING and not paused_by_player:
 		_toggle_pause()
 
 
@@ -921,6 +956,19 @@ func _capture_smoke() -> void:
 		var is_double: bool = group["platforms"].size() > 1
 		assert(not (last_was_double and is_double), "Generated content cannot contain consecutive double platforms")
 		last_was_double = is_double
+		if group.has("gap"):
+			var visual_width := 0.0
+			for platform in group["platforms"]:
+				visual_width += float(db.platforms[int(platform["id"])]["lang"])
+			if visual_width < VIEW_SIZE.x:
+				assert(float(group["gap"]) == SHORT_PLATFORM_GAP, "Short target platforms need the assisted vertical gap")
+		for monster in group["monsters"]:
+			var monster_sprite: AnimatedSprite2D = monster["sprite"]
+			var monster_feet := monster_sprite.position.y + float(monster["sprite_height"]) * 0.5 + float(monster["cfg"]["sky"])
+			assert(is_equal_approx(monster_feet, float(monster["surface_y"])), "Monster feet must follow the platform surface")
+		for pickup in group["pickups"]:
+			var pickup_bottom := float(pickup["base_y"]) + float(pickup["sprite_height"]) * 0.5
+			assert(is_equal_approx(pickup_bottom, float(pickup["surface_y"]) - 30.0), "Pickup hover height must follow the platform surface")
 	await get_tree().process_frame
 	await get_tree().process_frame
 	var gameplay_image := get_viewport().get_texture().get_image()
@@ -960,5 +1008,5 @@ func _capture_smoke() -> void:
 	_update_player(1.0 / 60.0)
 	assert(hp == MAX_HP - 1 and grounded, "Falling must cost one life and respawn on a safe platform")
 	assert(not grounded_platform.is_empty(), "Respawn must select a live platform")
-	print("SMOKE PASS: P1 trajectory, generation rules, ice slide, pause, persistence hooks and core game flow")
+	print("SMOKE PASS: surface anchors, assisted gaps, trajectory, ice slide, pause and core game flow")
 	get_tree().quit()
