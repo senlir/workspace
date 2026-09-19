@@ -1,13 +1,68 @@
 [
-  {"id":10,"surface_y":56.5,"collision_height":113.0,"edge_inset":0.0},
-  {"id":11,"surface_y":47.0,"collision_height":94.0,"edge_inset":0.0},
-  {"id":12,"surface_y":47.0,"collision_height":94.0,"edge_inset":4.0},
-  {"id":16,"surface_y":15.5,"collision_height":31.0,"edge_inset":5.0},
-  {"id":17,"surface_y":14.0,"collision_height":28.0,"edge_inset":5.0},
-  {"id":20,"surface_y":13.0,"collision_height":26.0,"edge_inset":5.0},
-  {"id":21,"surface_y":21.0,"collision_height":42.0,"edge_inset":3.0},
-  {"id":22,"surface_y":21.0,"collision_height":42.0,"edge_inset":3.0},
-  {"id":23,"surface_y":21.0,"collision_height":42.0,"edge_inset":3.0},
-  {"id":24,"surface_y":19.0,"collision_height":38.0,"edge_inset":1.0},
-  {"id":113,"surface_y":30.5,"collision_height":61.0,"edge_inset":5.0}
+  {
+    "collision_height": 89.0,
+    "edge_inset": 0.0,
+    "id": 10.0,
+    "surface_y": 2.5
+  },
+  {
+    "collision_height": 11.0,
+    "edge_inset": 0.0,
+    "id": 11.0,
+    "surface_y": 2.5
+  },
+  {
+    "collision_height": 15.0,
+    "edge_inset": 4.0,
+    "id": 12.0,
+    "surface_y": 0.0
+  },
+  {
+    "collision_height": 18.5,
+    "edge_inset": 5.0,
+    "id": 16.0,
+    "surface_y": 2.0
+  },
+  {
+    "collision_height": 28.0,
+    "edge_inset": 2.5,
+    "id": 17.0,
+    "surface_y": 0.0
+  },
+  {
+    "collision_height": 25.5,
+    "edge_inset": 0.5,
+    "id": 20.0,
+    "surface_y": 1.5
+  },
+  {
+    "collision_height": 42.0,
+    "edge_inset": 0.5,
+    "id": 21.0,
+    "surface_y": 1.0
+  },
+  {
+    "collision_height": 42.0,
+    "edge_inset": 1.0,
+    "id": 22.0,
+    "surface_y": 2.5
+  },
+  {
+    "collision_height": 42.0,
+    "edge_inset": 3.0,
+    "id": 23.0,
+    "surface_y": 0.5
+  },
+  {
+    "collision_height": 38.0,
+    "edge_inset": 1.0,
+    "id": 24.0,
+    "surface_y": 3.5
+  },
+  {
+    "collision_height": 16.5,
+    "edge_inset": 1.0,
+    "id": 113.0,
+    "surface_y": 0.0
+  }
 ]

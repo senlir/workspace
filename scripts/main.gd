@@ -13,6 +13,8 @@ const CAMERA_LINE := 500.0
 const GROUP_GAP := 195.0
 const MAX_HP := 4
 const ROUND_TIME := 180.0
+const SAVE_PATH := "user://progress.cfg"
+const ICE_SPEED := 210.0
 
 enum GameState { HOME, PLAYING, GAME_OVER }
 
@@ -49,6 +51,10 @@ var highest_group_y := 900.0
 var tier_slot := 0
 var current_tier_score := -1
 var safe_position := Vector2(320.0, 876.0)
+var previous_group_was_double := false
+var high_score := 0
+var sound_enabled := true
+var paused_by_player := false
 
 var score_label: Label
 var timer_label: Label
@@ -56,15 +62,21 @@ var hp_label: Label
 var energy_label: Label
 var result_label: Label
 var hint_label: Label
+var high_score_label: Label
+var pause_overlay: CanvasLayer
+var pause_button: Button
+var sound_buttons: Array[Button] = []
 
 
 func _ready() -> void:
 	rng.randomize()
+	_load_progress()
 	db.load_all()
 	_build_world()
 	_build_home()
 	_build_hud()
 	_build_game_over()
+	_build_pause_overlay()
 	_build_audio()
 	show_home()
 	if "--capture-smoke" in OS.get_cmdline_user_args():
@@ -121,6 +133,15 @@ func _build_home() -> void:
 	rules.position = Vector2(80, 890)
 	rules.size = Vector2(480, 48)
 	home.add_child(rules)
+	high_score_label = _make_label("最高分 %d" % high_score, 22, Color("fff1a8"), false)
+	high_score_label.position = Vector2(24, 24)
+	high_score_label.size = Vector2(260, 48)
+	home.add_child(high_score_label)
+	var home_sound := _make_icon_button("♪", "切换音效")
+	home_sound.position = Vector2(556, 24)
+	home_sound.pressed.connect(_toggle_sound)
+	home.add_child(home_sound)
+	sound_buttons.append(home_sound)
 
 
 func _build_hud() -> void:
@@ -157,6 +178,15 @@ func _build_hud() -> void:
 	hint_label.add_theme_constant_override("shadow_offset_x", 2)
 	hint_label.add_theme_constant_override("shadow_offset_y", 2)
 	hud.add_child(hint_label)
+	var hud_sound := _make_icon_button("♪", "切换音效")
+	hud_sound.position = Vector2(278, 35)
+	hud_sound.pressed.connect(_toggle_sound)
+	hud.add_child(hud_sound)
+	sound_buttons.append(hud_sound)
+	pause_button = _make_icon_button("Ⅱ", "暂停")
+	pause_button.position = Vector2(330, 35)
+	pause_button.pressed.connect(_toggle_pause)
+	hud.add_child(pause_button)
 	hud.visible = false
 
 
@@ -195,7 +225,28 @@ func _build_audio() -> void:
 	music_player.stream = music
 	music_player.volume_db = -8.0
 	add_child(music_player)
-	music_player.play()
+	_apply_sound_state()
+
+
+func _build_pause_overlay() -> void:
+	pause_overlay = CanvasLayer.new()
+	pause_overlay.layer = 40
+	add_child(pause_overlay)
+	var shade := ColorRect.new()
+	shade.color = Color(0.02, 0.02, 0.04, 0.68)
+	shade.position = Vector2.ZERO
+	shade.size = VIEW_SIZE
+	pause_overlay.add_child(shade)
+	var label := _make_label("已暂停", 48, Color.WHITE, true)
+	label.position = Vector2(120, 420)
+	label.size = Vector2(400, 80)
+	pause_overlay.add_child(label)
+	var resume := _make_button("继续", Color("65c92f"))
+	resume.position = Vector2(190, 530)
+	resume.size = Vector2(260, 76)
+	resume.pressed.connect(_toggle_pause)
+	pause_overlay.add_child(resume)
+	pause_overlay.visible = false
 
 
 func show_home() -> void:
@@ -221,10 +272,13 @@ func start_game() -> void:
 	rocket_time = 0.0
 	tier_slot = 0
 	current_tier_score = 0
+	previous_group_was_double = false
 	velocity = Vector2.ZERO
 	grounded = true
 	grounded_platform = {}
 	aiming = false
+	paused_by_player = false
+	pause_overlay.visible = false
 	player.position = safe_position
 	player.modulate = Color.WHITE
 	player.play("walk1")
@@ -235,7 +289,7 @@ func start_game() -> void:
 
 
 func _process(delta: float) -> void:
-	if state != GameState.PLAYING:
+	if state != GameState.PLAYING or paused_by_player:
 		return
 	time_left = maxf(0.0, time_left - delta)
 	hurt_cooldown = maxf(0.0, hurt_cooldown - delta)
@@ -259,7 +313,11 @@ func _process(delta: float) -> void:
 
 func _update_player(delta: float) -> void:
 	var previous_position := player.position
-	if not grounded:
+	if grounded and not grounded_platform.is_empty() and int(grounded_platform.get("id", 0)) == 24:
+		var ice_direction := float(grounded_platform.get("slide_direction", 1.0))
+		velocity.x = move_toward(velocity.x, ice_direction * ICE_SPEED, 520.0 * delta)
+		player.position.x += velocity.x * delta
+	elif not grounded:
 		velocity.y += GRAVITY * delta
 		player.position += velocity * delta
 		_check_platform_landing(previous_position)
@@ -310,7 +368,7 @@ func _check_platform_landing(previous_position: Vector2) -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if state != GameState.PLAYING:
+	if state != GameState.PLAYING or paused_by_player:
 		return
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
 		if event.pressed and grounded:
@@ -351,11 +409,33 @@ func _release_aim() -> void:
 		player.play("walk1")
 		return
 	var power := clampf(drag.length() / MAX_DRAG, 0.0, 1.0)
-	velocity = -drag.normalized() * lerpf(260.0, MAX_LAUNCH_SPEED, power)
+	velocity = get_launch_velocity(drag)
 	grounded = false
 	grounded_platform = {}
 	player.play("walk4" if power > 0.82 else "walk3")
 	_play_sound(6)
+
+
+func get_launch_velocity(drag: Vector2) -> Vector2:
+	if drag.length() < 0.001:
+		return Vector2.ZERO
+	var limited_drag := drag.limit_length(MAX_DRAG)
+	var power := clampf(limited_drag.length() / MAX_DRAG, 0.0, 1.0)
+	return -limited_drag.normalized() * lerpf(260.0, MAX_LAUNCH_SPEED, power)
+
+
+func get_trajectory_points(drag: Vector2) -> Array[Vector2]:
+	var points: Array[Vector2] = []
+	var launch_velocity := get_launch_velocity(drag)
+	if launch_velocity.length() < 1.0:
+		return points
+	for index in range(1, 13):
+		var time := float(index) * 0.09
+		var point := player.position + launch_velocity * time + Vector2(0.0, GRAVITY * time * time * 0.5)
+		points.append(point)
+		if point.y > VIEW_SIZE.y or point.x < 0.0 or point.x > VIEW_SIZE.x:
+			break
+	return points
 
 
 func _update_aim_visual() -> void:
@@ -405,9 +485,22 @@ func _spawn_config_group(y: float) -> void:
 		current_tier_score = tier_score
 		tier_slot = 0
 	var group_id: int = db.pick_group_id(score, tier_slot, rng)
+	for retry in range(6):
+		if not previous_group_was_double or not _group_has_two_platforms(group_id):
+			break
+		group_id = db.pick_group_id(score, tier_slot, rng)
+	if previous_group_was_double and _group_has_two_platforms(group_id):
+		var single_platform_groups: Array[int] = []
+		for slot in tier["group_slots"]:
+			for candidate in slot:
+				if not _group_has_two_platforms(int(candidate)):
+					single_platform_groups.append(int(candidate))
+		if not single_platform_groups.is_empty():
+			group_id = single_platform_groups[rng.randi_range(0, single_platform_groups.size() - 1)]
 	var tool_id: int = db.pick_tool_id(score, tier_slot, rng)
 	tier_slot += 1
 	var cfg: Dictionary = db.groups[group_id]
+	previous_group_was_double = int(cfg["shuzhi2"]) > 0
 	var root := Node2D.new()
 	root.position.y = y
 	content_layer.add_child(root)
@@ -454,11 +547,16 @@ func _create_platform(root: Node2D, cfg: Dictionary, start_x: float, local_y: fl
 		"local_y": local_y,
 		"surface_y": float(profile["surface_y"]),
 		"height": float(profile["collision_height"]),
+		"slide_direction": -1.0 if mirrored else 1.0,
 		"fall_delay": float(cfg["time"]),
 		"fall_timer": -1.0,
 		"fall_speed": 0.0,
 		"falling": false
 	}
+
+
+func _group_has_two_platforms(group_id: int) -> bool:
+	return db.groups.has(group_id) and int(db.groups[group_id]["shuzhi2"]) > 0
 
 
 func _update_platforms(delta: float) -> void:
@@ -688,6 +786,10 @@ func _finish_game() -> void:
 	velocity = Vector2.ZERO
 	aiming = false
 	result_label.text = "得分 %d" % score
+	if score > high_score:
+		high_score = score
+		high_score_label.text = "最高分 %d" % high_score
+		_save_progress()
 	game_over_panel.visible = true
 	_play_sound(5)
 
@@ -704,11 +806,66 @@ func _update_aim_layer_draw() -> void:
 
 
 func _play_sound(id: int) -> void:
+	if not sound_enabled:
+		return
 	var player_node := AudioStreamPlayer.new()
 	player_node.stream = load("res://assets/audio/%d.mp3" % id)
 	player_node.finished.connect(player_node.queue_free)
 	add_child(player_node)
 	player_node.play()
+
+
+func _make_icon_button(text_value: String, tooltip: String) -> Button:
+	var button := Button.new()
+	button.text = text_value
+	button.tooltip_text = tooltip
+	button.custom_minimum_size = Vector2(44, 44)
+	button.add_theme_font_size_override("font_size", 24)
+	return button
+
+
+func _toggle_sound() -> void:
+	sound_enabled = not sound_enabled
+	_apply_sound_state()
+	_save_progress()
+
+
+func _apply_sound_state() -> void:
+	for button in sound_buttons:
+		button.modulate = Color.WHITE if sound_enabled else Color(1.0, 1.0, 1.0, 0.4)
+	if sound_enabled:
+		if not music_player.playing and music_player.stream != null:
+			music_player.play()
+	else:
+		music_player.stop()
+
+
+func _toggle_pause() -> void:
+	if state != GameState.PLAYING:
+		return
+	paused_by_player = not paused_by_player
+	pause_overlay.visible = paused_by_player
+	if pause_button != null:
+		pause_button.text = "▶" if paused_by_player else "Ⅱ"
+
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_APPLICATION_FOCUS_OUT and state == GameState.PLAYING and not paused_by_player:
+		_toggle_pause()
+
+
+func _load_progress() -> void:
+	var config := ConfigFile.new()
+	if config.load(SAVE_PATH) == OK:
+		high_score = int(config.get_value("progress", "high_score", 0))
+		sound_enabled = bool(config.get_value("settings", "sound_enabled", true))
+
+
+func _save_progress() -> void:
+	var config := ConfigFile.new()
+	config.set_value("progress", "high_score", high_score)
+	config.set_value("settings", "sound_enabled", sound_enabled)
+	config.save(SAVE_PATH)
 
 
 func _make_label(text_value: String, font_size: int, color: Color, centered: bool) -> Label:
@@ -756,6 +913,14 @@ func _capture_smoke() -> void:
 		home_image.save_png("res://artifacts/home.png")
 	start_game()
 	assert(content_groups.size() >= 9, "Expected initial content groups")
+	var trajectory := get_trajectory_points(Vector2(80.0, 130.0))
+	assert(trajectory.size() >= 3, "Aiming must provide a usable trajectory preview")
+	assert((trajectory[2].y - trajectory[1].y) > (trajectory[1].y - trajectory[0].y), "Trajectory preview must include gravity")
+	var last_was_double := false
+	for group in content_groups:
+		var is_double: bool = group["platforms"].size() > 1
+		assert(not (last_was_double and is_double), "Generated content cannot contain consecutive double platforms")
+		last_was_double = is_double
 	await get_tree().process_frame
 	await get_tree().process_frame
 	var gameplay_image := get_viewport().get_texture().get_image()
@@ -764,6 +929,11 @@ func _capture_smoke() -> void:
 	_begin_aim(Vector2(320.0, 450.0))
 	drag_position = Vector2(420.0, 585.0)
 	_update_launch_preview()
+	aim_layer.queue_redraw()
+	await get_tree().process_frame
+	var aim_image := get_viewport().get_texture().get_image()
+	if aim_image != null:
+		aim_image.save_png("res://artifacts/aim_preview.png")
 	_release_aim()
 	assert(not grounded and velocity.y < 0.0, "Drag release must launch the player upward")
 	for frame in range(20):
@@ -777,9 +947,18 @@ func _capture_smoke() -> void:
 	assert(state == GameState.GAME_OVER, "Timer expiry must end the round")
 	start_game()
 	assert(state == GameState.PLAYING and hp == MAX_HP and score == 0, "Restart must reset the round")
+	var pause_time := time_left
+	_toggle_pause()
+	_process(1.0)
+	assert(time_left == pause_time, "Pausing must freeze the round timer")
+	_toggle_pause()
+	var ice_start_x := player.position.x
+	grounded_platform = {"id": 24, "slide_direction": 1.0}
+	_update_player(0.2)
+	assert(player.position.x > ice_start_x, "Ice platforms must slide the grounded player")
 	player.position.y = VIEW_SIZE.y + 100.0
 	_update_player(1.0 / 60.0)
 	assert(hp == MAX_HP - 1 and grounded, "Falling must cost one life and respawn on a safe platform")
 	assert(not grounded_platform.is_empty(), "Respawn must select a live platform")
-	print("SMOKE PASS: configs, platform profiles, spawning, collisions, drag launch, safe respawn, game over and restart")
+	print("SMOKE PASS: P1 trajectory, generation rules, ice slide, pause, persistence hooks and core game flow")
 	get_tree().quit()

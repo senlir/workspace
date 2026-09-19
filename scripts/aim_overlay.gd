@@ -13,9 +13,7 @@ func _draw() -> void:
 	draw_arc(start, 58.0, 0.0, TAU, 48, Color(1, 1, 1, 0.65), 3.0)
 	draw_line(start, finish, Color("ffe36d"), 7.0, true)
 	draw_circle(finish, 18.0, Color("ff9e2c"))
-	var launch := -(finish - start)
-	if launch.length() > 1.0:
-		var direction := launch.normalized()
-		for index in range(1, 7):
-			var point: Vector2 = owner_game.player.position + direction * float(index * 42)
-			draw_circle(point, maxf(2.0, 8.0 - index), Color(1, 1, 1, 0.9 - index * 0.1))
+	var points: Array[Vector2] = owner_game.get_trajectory_points(finish - start)
+	for index in range(points.size()):
+		var alpha := lerpf(0.9, 0.25, float(index) / maxf(1.0, points.size() - 1.0))
+		draw_circle(points[index], 5.0 if index % 2 == 0 else 3.0, Color(1.0, 1.0, 1.0, alpha))
