@@ -59,9 +59,11 @@ def repository_context(root: Path, config: dict[str, Any]) -> str:
 
 def extract_unified_diff(text: str) -> str:
     if "```diff" in text:
-        return text.split("```diff", 1)[1].split("```", 1)[0].strip() + "\n"
+        extracted = text.split("```diff", 1)[1].split("```", 1)[0].strip() + "\n"
+        return extracted.replace("\r\n", "\n").replace("\r", "\n")
     marker = text.find("diff --git ")
-    return text[marker:].strip() + "\n" if marker >= 0 else ""
+    extracted = text[marker:].strip() + "\n" if marker >= 0 else ""
+    return extracted.replace("\r\n", "\n").replace("\r", "\n")
 
 
 def validate_patch_paths(patch: str) -> None:
@@ -83,29 +85,24 @@ def validate_patch_paths(patch: str) -> None:
 def apply_patch(root: Path, patch: str) -> tuple[bool, str]:
     if not patch:
         return False, "No unified diff was produced; nothing was applied."
+    patch = patch.replace("\r\n", "\n").replace("\r", "\n")
     validate_patch_paths(patch)
     process = subprocess.run(
         ["git", "apply", "--check", "--recount", "-"],
         cwd=root,
-        input=patch,
+        input=patch.encode("utf-8"),
         capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
     )
     if process.returncode != 0:
-        return False, f"Patch check failed:\n{process.stderr.strip()}"
+        return False, f"Patch check failed:\n{process.stderr.decode('utf-8', 'replace').strip()}"
     applied = subprocess.run(
         ["git", "apply", "--recount", "-"],
         cwd=root,
-        input=patch,
+        input=patch.encode("utf-8"),
         capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
     )
     if applied.returncode != 0:
-        return False, f"Patch apply failed:\n{applied.stderr.strip()}"
+        return False, f"Patch apply failed:\n{applied.stderr.decode('utf-8', 'replace').strip()}"
     return True, "Patch applied successfully."
 
 

@@ -248,7 +248,7 @@ class DevelopmentWorkflow:
     def _write_artifact(self, state: WorkflowState, name: str, content: str) -> None:
         run_dir = self.root / ".dev_workflow" / "runs" / state["thread_id"]
         run_dir.mkdir(parents=True, exist_ok=True)
-        (run_dir / name).write_text(content, encoding="utf-8")
+        (run_dir / name).write_text(content, encoding="utf-8", newline="\n")
 
 
 def load_config(root: Path) -> dict[str, Any]:

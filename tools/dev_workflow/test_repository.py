@@ -29,7 +29,7 @@ class RepositoryHelpersTest(unittest.TestCase):
             root = Path(directory)
             subprocess.run(["git", "init", "-q"], cwd=root, check=True)
             target = root / "sample.txt"
-            target.write_text("before\n", encoding="utf-8")
+            target.write_bytes(b"before\n")
             subprocess.run(["git", "add", "sample.txt"], cwd=root, check=True)
             patch = (
                 "diff --git a/sample.txt b/sample.txt\n"
@@ -53,7 +53,7 @@ class RepositoryHelpersTest(unittest.TestCase):
             root = Path(directory)
             subprocess.run(["git", "init", "-q"], cwd=root, check=True)
             target = root / "sample.txt"
-            target.write_text("before\n", encoding="utf-8")
+            target.write_bytes(b"before\n")
             subprocess.run(["git", "add", "sample.txt"], cwd=root, check=True)
             patch = (
                 "diff --git a/sample.txt b/sample.txt\n"
@@ -62,6 +62,25 @@ class RepositoryHelpersTest(unittest.TestCase):
                 "@@ -1,7 +1,9 @@\n"
                 "-before\n"
                 "+after\n"
+            )
+            ok, message = apply_patch(root, patch)
+            self.assertTrue(ok, message)
+            self.assertEqual(target.read_text(encoding="utf-8"), "after\n")
+
+    def test_normalizes_crlf_patch_for_lf_repository_file(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+            target = root / "sample.txt"
+            target.write_bytes(b"before\n")
+            subprocess.run(["git", "add", "sample.txt"], cwd=root, check=True)
+            patch = (
+                "diff --git a/sample.txt b/sample.txt\r\n"
+                "--- a/sample.txt\r\n"
+                "+++ b/sample.txt\r\n"
+                "@@ -1 +1 @@\r\n"
+                "-before\r\n"
+                "+after\r\n"
             )
             ok, message = apply_patch(root, patch)
             self.assertTrue(ok, message)
