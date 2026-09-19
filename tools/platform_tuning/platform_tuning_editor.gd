@@ -124,7 +124,11 @@ func _show_selected() -> void:
 	selector.select(selected_index)
 	var row: Dictionary = platform_rows[selected_index]
 	var profile := _profile_for_id(int(row["id"]))
-	var texture := atlas.frame(ATLAS_TEXTURE, ATLAS_JSON, str(row["img"]))
+	var texture: Texture2D
+	if int(row["id"]) == 24:
+		texture = load("res://source_assets/物件/滚梯/滚梯1.png")
+	else:
+		texture = atlas.frame(ATLAS_TEXTURE, ATLAS_JSON, str(row["img"]))
 	preview.set_profile(texture, profile)
 	surface_spin.set_value_no_signal(float(profile["surface_y"]))
 	height_spin.set_value_no_signal(float(profile["collision_height"]))
@@ -175,6 +179,11 @@ func _reload_data() -> void:
 
 func _capture_tool() -> void:
 	DirAccess.make_dir_recursive_absolute("res://artifacts")
+	for index in range(platform_rows.size()):
+		if int(platform_rows[index]["id"]) == 24:
+			selected_index = index
+			_show_selected()
+			break
 	await get_tree().process_frame
 	await get_tree().process_frame
 	var image := get_viewport().get_texture().get_image()

@@ -673,11 +673,9 @@ func _create_platform(root: Node2D, cfg: Dictionary, start_x: float, local_y: fl
 	var x := start_x
 	if mirrored:
 		x = VIEW_SIZE.x - start_x - visual_width
-	var sprite := Sprite2D.new()
-	sprite.texture = atlas.frame("res://assets/ui/game1.png", "res://assets/ui/game1.json", str(cfg["img"]))
-	sprite.centered = false
+	var sprite: Node2D = _create_platform_visual(cfg)
 	sprite.position = Vector2(x, local_y - float(profile["surface_y"]))
-	sprite.flip_h = mirrored
+	sprite.set("flip_h", mirrored)
 	root.add_child(sprite)
 	return {
 		"id": int(cfg["id"]),
@@ -694,6 +692,27 @@ func _create_platform(root: Node2D, cfg: Dictionary, start_x: float, local_y: fl
 		"fall_speed": 0.0,
 		"falling": false
 	}
+
+
+func _create_platform_visual(cfg: Dictionary) -> Node2D:
+	if int(cfg["id"]) == 24:
+		var animated := AnimatedSprite2D.new()
+		var frames := SpriteFrames.new()
+		frames.remove_animation("default")
+		frames.add_animation("move")
+		frames.set_animation_speed("move", 8.0)
+		frames.set_animation_loop("move", true)
+		for index in range(1, 5):
+			frames.add_frame("move", load("res://source_assets/物件/滚梯/滚梯%d.png" % index))
+		animated.sprite_frames = frames
+		animated.animation = "move"
+		animated.centered = false
+		animated.play()
+		return animated
+	var sprite := Sprite2D.new()
+	sprite.texture = atlas.frame("res://assets/ui/game1.png", "res://assets/ui/game1.json", str(cfg["img"]))
+	sprite.centered = false
+	return sprite
 
 
 func _group_has_two_platforms(group_id: int) -> bool:
@@ -717,7 +736,7 @@ func _update_platforms(delta: float) -> void:
 			if platform.get("falling", false):
 				platform["fall_speed"] = float(platform["fall_speed"]) + GRAVITY * delta * 0.65
 				platform["local_y"] = float(platform["local_y"]) + float(platform["fall_speed"]) * delta
-				var sprite: Sprite2D = platform["sprite"]
+				var sprite: Node2D = platform["sprite"]
 				sprite.position.y = float(platform["local_y"]) - float(platform["surface_y"])
 
 
@@ -1149,6 +1168,24 @@ func _capture_smoke() -> void:
 		home_image.save_png("res://artifacts/home.png")
 	start_game()
 	assert(content_groups.size() >= 9, "Expected initial content groups")
+	var escalator_found := false
+	var escalator_for_test: AnimatedSprite2D
+	for group in content_groups:
+		for platform in group["platforms"]:
+			if int(platform["id"]) == 24:
+				var escalator := platform["sprite"] as AnimatedSprite2D
+				assert(escalator != null and escalator.is_playing(), "Line24 must use a playing AnimatedSprite2D")
+				assert(escalator.sprite_frames.get_frame_count("move") == 4, "Line24 must load all four source frames")
+				var source_size := escalator.sprite_frames.get_frame_texture("move", 0).get_size()
+				assert(absf(source_size.x - float(db.platforms[24]["lang"])) <= 1.0, "Line24 source width must remain compatible with its configured length")
+				for frame_index in range(1, 4):
+					assert(escalator.sprite_frames.get_frame_texture("move", frame_index).get_size() == source_size, "Line24 source frames must keep identical dimensions")
+				escalator_found = true
+				escalator_for_test = escalator
+	assert(escalator_found, "Initial smoke content must include line24")
+	var initial_escalator_frame := escalator_for_test.frame
+	await get_tree().create_timer(0.16).timeout
+	assert(escalator_for_test.frame != initial_escalator_frame, "Line24 animation must advance through its source frames")
 	assert(shield_effect.sprite_frames.has_animation("hudun") and shield_effect.sprite_frames.get_frame_count("hudun") == 5, "Shield effect must load all five animation frames")
 	assert(rocket_effect.sprite_frames.has_animation("huojian") and rocket_effect.sprite_frames.get_frame_count("huojian") == 2, "Rocket effect must load both animation frames")
 	assert(heal_effect.sprite_frames.has_animation("jiaxue") and heal_effect.sprite_frames.get_frame_count("jiaxue") == 8, "Heal effect must load all eight animation frames")
