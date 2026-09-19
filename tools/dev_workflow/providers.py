@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -42,7 +43,7 @@ class ModelGateway:
                     {"role": "user", "content": prompt},
                 ],
             )
-            return response.choices[0].message.content or ""
+            return self._strip_reasoning(response.choices[0].message.content or "")
         raise ValueError(f"Unsupported provider: {settings.provider}")
 
     def _settings(self, phase: str, provider: str) -> ModelSettings:
@@ -63,6 +64,10 @@ class ModelGateway:
         if not value:
             raise RuntimeError(f"Missing required environment variable: {name}")
         return value
+
+    @staticmethod
+    def _strip_reasoning(content: str) -> str:
+        return re.sub(r"<think>.*?</think>\s*", "", content, flags=re.DOTALL | re.IGNORECASE).strip()
 
     @staticmethod
     def _mock_response(phase: str, prompt: str) -> str:

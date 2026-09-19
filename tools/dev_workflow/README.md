@@ -9,7 +9,7 @@ py -3 -m venv .venv
 & '.\.venv\Scripts\python.exe' -m pip install -r requirements-workflow.txt
 ```
 
-复制 `.env.example` 中需要的值到当前终端环境。密钥不要写入仓库。
+复制 `.env.example` 为 `.env` 并填写需要的值，CLI 会自动加载；也可以直接设置当前终端环境变量。`.env` 已被 Git 忽略，密钥不要写入其他受跟踪文件。
 
 ## 启动与讨论
 

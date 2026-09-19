@@ -7,6 +7,7 @@ import sys
 import uuid
 from pathlib import Path
 
+from dotenv import load_dotenv
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.types import Command
 
@@ -43,6 +44,7 @@ def main() -> int:
         sys.stderr.reconfigure(encoding="utf-8")
     args = build_parser().parse_args()
     root = project_root()
+    load_dotenv(root / ".env")
     config = load_config(root)
     database = root / ".dev_workflow" / "checkpoints.sqlite"
     database.parent.mkdir(parents=True, exist_ok=True)
