@@ -44,7 +44,7 @@ py -3 -m venv .venv
 & '.\.venv\Scripts\python.exe' -m tools.dev_workflow.cli resume <thread> --decision revise --feedback '修正审查列出的高风险问题' --auto-review --max-revisions 3 --apply
 ```
 
-审稿代理必须返回结构化的 `approve` 或 `revise`。模型输出无法解析、三轮后仍未通过时，工作流会回到人工讨论节点。省略 `--apply` 时只生成补丁并验证当前工作区，不修改文件。
+审稿代理必须返回结构化的 `approve` 或 `revise`。模型输出无法解析、三轮后仍未通过时，工作流会回到人工讨论节点。实现代理生成的补丁会先经 `git apply --check --recount` 检查，失败时根据错误自动修补，默认最多尝试两次。省略 `--apply` 时只生成补丁并验证当前工作区，不修改文件。
 
 ## 模型切换
 

@@ -85,7 +85,7 @@ def apply_patch(root: Path, patch: str) -> tuple[bool, str]:
         return False, "No unified diff was produced; nothing was applied."
     validate_patch_paths(patch)
     process = subprocess.run(
-        ["git", "apply", "--check", "-"],
+        ["git", "apply", "--check", "--recount", "-"],
         cwd=root,
         input=patch,
         capture_output=True,
@@ -96,7 +96,7 @@ def apply_patch(root: Path, patch: str) -> tuple[bool, str]:
     if process.returncode != 0:
         return False, f"Patch check failed:\n{process.stderr.strip()}"
     applied = subprocess.run(
-        ["git", "apply", "-"],
+        ["git", "apply", "--recount", "-"],
         cwd=root,
         input=patch,
         capture_output=True,

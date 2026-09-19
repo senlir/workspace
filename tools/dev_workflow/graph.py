@@ -26,6 +26,8 @@ class WorkflowState(TypedDict, total=False):
     auto_review_round: int
     apply_changes: bool
     implementation: str
+    implementation_attempt: int
+    max_patch_attempts: int
     patch: str
     apply_log: str
     apply_ok: bool
@@ -59,7 +61,11 @@ class DevelopmentWorkflow:
             {"discussion": "discussion", "proposal": "proposal", "implementation": "implementation"},
         )
         graph.add_edge("implementation", "apply")
-        graph.add_edge("apply", "validation")
+        graph.add_conditional_edges(
+            "apply",
+            self.route_after_apply,
+            {"implementation": "implementation", "validation": "validation"},
+        )
         graph.add_edge("validation", "validation_review")
         graph.add_edge("validation_review", END)
         return graph.compile(checkpointer=checkpointer)
@@ -88,7 +94,8 @@ class DevelopmentWorkflow:
                 "You are an independent senior reviewer. Check the proposal against the repository. "
                 "Return JSON only with keys verdict, critique, and feedback. verdict must be approve or revise. "
                 "Approve only when there are no blocking or high-risk correctness, scope, rollback, or validation issues. "
-                "feedback must be concrete instructions the proposal author can apply in the next revision."
+                "Production hot paths must not contain assertions that belong in tests. "
+                "feedback must be concrete instructions for a revise verdict and must be empty for approve."
             ),
             (
                 f"REVISION: {state.get('revision', 1)}\nREQUEST:\n{state['request']}\n\n"
@@ -162,30 +169,54 @@ class DevelopmentWorkflow:
             verdict = "human"
         critique = str(value.get("critique", "")).strip() or content.strip()
         feedback = str(value.get("feedback", "")).strip()
+        if verdict == "approve":
+            feedback = ""
         return {"verdict": verdict, "critique": critique, "feedback": feedback}
 
     def implementation(self, state: WorkflowState) -> dict[str, Any]:
         context = repository_context(self.root, self.config)
+        attempt = state.get("implementation_attempt", 0) + 1
+        previous_failure = state.get("apply_log", "")
         implementation = self.models.complete(
             "implementation",
             state.get("provider", ""),
-            "Implement the approved proposal. Return a valid git unified diff only, with repository-relative paths. Do not include commands or prose outside the diff.",
-            f"REQUEST:\n{state['request']}\n\nAPPROVED PROPOSAL:\n{state['proposal']}\n\nREVIEW FEEDBACK:\n{state.get('feedback', '')}\n\nREPOSITORY:\n{context}",
+            (
+                "Implement the approved proposal. Return a valid git unified diff only, with repository-relative paths. "
+                "Use exact repository context, correct hunk counts, and omit fabricated index hashes. "
+                "Keep test assertions in existing test or smoke-test code, never in production hot paths. "
+                "Do not include commands or prose outside the diff."
+            ),
+            (
+                f"PATCH ATTEMPT: {attempt}\nREQUEST:\n{state['request']}\n\nAPPROVED PROPOSAL:\n{state['proposal']}\n\n"
+                f"REVIEW FEEDBACK:\n{state.get('feedback', '')}\n\nPREVIOUS APPLY FAILURE:\n{previous_failure}\n\n"
+                f"REPOSITORY:\n{context}"
+            ),
         )
         patch = extract_unified_diff(implementation)
         self._write_artifact(state, "implementation.txt", implementation)
         if patch:
             self._write_artifact(state, "changes.diff", patch)
-        return {"implementation": implementation, "patch": patch, "status": "implementation"}
+        return {"implementation": implementation, "patch": patch, "implementation_attempt": attempt, "status": "implementation"}
 
     def apply(self, state: WorkflowState) -> dict[str, Any]:
         if not state.get("apply_changes", False):
             apply_ok = True
             log = "Dry run: patch was generated but not applied."
         else:
-            apply_ok, log = apply_patch(self.root, state.get("patch", ""))
+            try:
+                apply_ok, log = apply_patch(self.root, state.get("patch", ""))
+            except (OSError, RuntimeError, ValueError) as error:
+                apply_ok, log = False, f"Patch rejected: {error}"
         self._write_artifact(state, "apply.log", log)
         return {"apply_log": log, "apply_ok": apply_ok}
+
+    def route_after_apply(self, state: WorkflowState) -> Literal["implementation", "validation"]:
+        if state.get("apply_ok", False):
+            return "validation"
+        max_attempts = max(1, state.get("max_patch_attempts", 2))
+        if state.get("implementation_attempt", 0) < max_attempts:
+            return "implementation"
+        return "validation"
 
     def validation(self, state: WorkflowState) -> dict[str, Any]:
         logs: list[str] = []

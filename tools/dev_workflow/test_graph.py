@@ -21,6 +21,12 @@ class AutoReviewTest(unittest.TestCase):
         self.assertEqual(review["verdict"], "human")
         self.assertEqual(review["critique"], "not json")
 
+    def test_approved_review_drops_non_blocking_feedback(self) -> None:
+        review = self.workflow._parse_review(
+            '{"verdict":"approve","critique":"ok","feedback":"change production code"}'
+        )
+        self.assertEqual(review["feedback"], "")
+
     def test_manual_mode_always_pauses(self) -> None:
         route = self.workflow.route_after_review({"auto_review": False, "review_verdict": "approve"})
         self.assertEqual(route, "discussion")
@@ -39,6 +45,15 @@ class AutoReviewTest(unittest.TestCase):
         self.assertEqual(self.workflow.route_after_review(state), "proposal")
         state["auto_review_round"] = 3
         self.assertEqual(self.workflow.route_after_review(state), "discussion")
+
+    def test_failed_patch_retries_then_validates(self) -> None:
+        state = {"apply_ok": False, "implementation_attempt": 1, "max_patch_attempts": 2}
+        self.assertEqual(self.workflow.route_after_apply(state), "implementation")
+        state["implementation_attempt"] = 2
+        self.assertEqual(self.workflow.route_after_apply(state), "validation")
+
+    def test_successful_patch_continues_to_validation(self) -> None:
+        self.assertEqual(self.workflow.route_after_apply({"apply_ok": True}), "validation")
 
 
 if __name__ == "__main__":

@@ -48,6 +48,25 @@ class RepositoryHelpersTest(unittest.TestCase):
         self.assertFalse(ok)
         self.assertIn("nothing was applied", message)
 
+    def test_recounts_model_generated_hunk_lengths(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+            target = root / "sample.txt"
+            target.write_text("before\n", encoding="utf-8")
+            subprocess.run(["git", "add", "sample.txt"], cwd=root, check=True)
+            patch = (
+                "diff --git a/sample.txt b/sample.txt\n"
+                "--- a/sample.txt\n"
+                "+++ b/sample.txt\n"
+                "@@ -1,7 +1,9 @@\n"
+                "-before\n"
+                "+after\n"
+            )
+            ok, message = apply_patch(root, patch)
+            self.assertTrue(ok, message)
+            self.assertEqual(target.read_text(encoding="utf-8"), "after\n")
+
 
 if __name__ == "__main__":
     unittest.main()

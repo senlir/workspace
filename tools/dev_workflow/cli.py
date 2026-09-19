@@ -60,6 +60,7 @@ def main() -> int:
             thread = args.thread or uuid.uuid4().hex[:12]
             provider = args.provider or os.getenv("DEVFLOW_PROVIDER") or config.get("provider", "mock")
             configured_revisions = int(config.get("auto_review", {}).get("max_revisions", 3))
+            configured_patch_attempts = int(config.get("auto_review", {}).get("max_patch_attempts", 2))
             result = graph.invoke(
                 {
                     "request": args.request,
@@ -70,6 +71,8 @@ def main() -> int:
                     "max_auto_revisions": args.max_revisions or configured_revisions,
                     "auto_review_round": 0,
                     "apply_changes": args.apply,
+                    "implementation_attempt": 0,
+                    "max_patch_attempts": configured_patch_attempts,
                 },
                 {"configurable": {"thread_id": thread}},
             )
@@ -84,6 +87,7 @@ def main() -> int:
                         "apply_changes": args.apply,
                         "auto_review": args.auto_review,
                         "max_auto_revisions": args.max_revisions or int(config.get("auto_review", {}).get("max_revisions", 3)),
+                        "max_patch_attempts": int(config.get("auto_review", {}).get("max_patch_attempts", 2)),
                     }
                 ),
                 {"configurable": {"thread_id": args.thread}},

@@ -16,7 +16,8 @@
     "extensions": [".gd", ".tscn", ".json", ".md", ".ps1", ".cfg"]
   },
   "auto_review": {
-    "max_revisions": 3
+    "max_revisions": 3,
+    "max_patch_attempts": 2
   },
   "validation_commands": [
     ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "tools/validate_content.ps1"],
