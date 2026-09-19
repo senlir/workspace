@@ -103,6 +103,14 @@ class DevelopmentWorkflow:
             ),
         )
         review = self._parse_review(raw_review)
+        if review["verdict"] == "human":
+            repaired = self.models.complete(
+                "review",
+                state.get("provider", ""),
+                "Convert the supplied review to JSON only. Use keys verdict, critique, feedback. verdict must be approve or revise.",
+                raw_review,
+            )
+            review = self._parse_review(repaired)
         critique = review["critique"]
         review_round = state.get("auto_review_round", 0) + 1 if state.get("auto_review", False) else 0
         self._write_artifact(state, "discussion.md", critique)
@@ -160,6 +168,8 @@ class DevelopmentWorkflow:
         if cleaned.startswith("```"):
             cleaned = cleaned.split("\n", 1)[1] if "\n" in cleaned else ""
             cleaned = cleaned.rsplit("```", 1)[0].strip()
+        elif "{" in cleaned and "}" in cleaned:
+            cleaned = cleaned[cleaned.find("{") : cleaned.rfind("}") + 1]
         try:
             value = json.loads(cleaned)
         except (json.JSONDecodeError, TypeError):

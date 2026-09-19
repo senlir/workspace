@@ -16,6 +16,12 @@ class AutoReviewTest(unittest.TestCase):
         self.assertEqual(self.workflow._parse_review(plain)["verdict"], "approve")
         self.assertEqual(self.workflow._parse_review(fenced)["critique"], "ok")
 
+    def test_extracts_review_json_from_surrounding_text(self) -> None:
+        content = 'Review result:\n{"verdict":"revise","critique":"issue","feedback":"fix it"}\nDone.'
+        review = self.workflow._parse_review(content)
+        self.assertEqual(review["verdict"], "revise")
+        self.assertEqual(review["feedback"], "fix it")
+
     def test_invalid_review_falls_back_to_human(self) -> None:
         review = self.workflow._parse_review("not json")
         self.assertEqual(review["verdict"], "human")

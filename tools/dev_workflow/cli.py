@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 import uuid
 from pathlib import Path
@@ -29,6 +30,7 @@ def build_parser() -> argparse.ArgumentParser:
     start.add_argument("--auto-review", action="store_true", help="Let the reviewer revise proposals until approved")
     start.add_argument("--max-revisions", type=int, default=None)
     start.add_argument("--apply", action="store_true", help="Apply an auto-approved generated diff")
+    start.add_argument("--verbose", action="store_true")
 
     resume = subparsers.add_parser("resume", help="Resume the human discussion checkpoint")
     resume.add_argument("thread")
@@ -37,9 +39,17 @@ def build_parser() -> argparse.ArgumentParser:
     resume.add_argument("--apply", action="store_true", help="Apply the generated diff before validation")
     resume.add_argument("--auto-review", action="store_true", help="Enable reviewer-driven revisions after this decision")
     resume.add_argument("--max-revisions", type=int, default=None)
+    resume.add_argument("--verbose", action="store_true")
+
+    continue_work = subparsers.add_parser("continue", help="Use reviewer feedback and continue automatically")
+    continue_work.add_argument("thread")
+    continue_work.add_argument("--feedback", default="")
+    continue_work.add_argument("--max-revisions", type=int, default=None)
+    continue_work.add_argument("--verbose", action="store_true")
 
     status = subparsers.add_parser("status", help="Inspect persisted workflow state")
     status.add_argument("thread")
+    status.add_argument("--verbose", action="store_true")
     return parser
 
 
@@ -76,7 +86,7 @@ def main() -> int:
                 },
                 {"configurable": {"thread_id": thread}},
             )
-            print_result(thread, result)
+            print_result(root, thread, result, args.verbose)
             return 0
         if args.command == "resume":
             result = graph.invoke(
@@ -92,27 +102,89 @@ def main() -> int:
                 ),
                 {"configurable": {"thread_id": args.thread}},
             )
-            print_result(args.thread, result)
+            print_result(root, args.thread, result, args.verbose)
+            return 0
+        if args.command == "continue":
+            runtime = {"configurable": {"thread_id": args.thread}}
+            snapshot = graph.get_state(runtime)
+            if "discussion" not in snapshot.next:
+                raise RuntimeError(f"Thread {args.thread} is not waiting for review confirmation")
+            feedback = args.feedback or str(snapshot.values.get("critique", "Resolve all reviewer findings."))
+            result = graph.invoke(
+                Command(
+                    resume={
+                        "decision": "revise",
+                        "feedback": feedback,
+                        "apply_changes": True,
+                        "auto_review": True,
+                        "max_auto_revisions": args.max_revisions or int(config.get("auto_review", {}).get("max_revisions", 3)),
+                        "max_patch_attempts": int(config.get("auto_review", {}).get("max_patch_attempts", 2)),
+                    }
+                ),
+                runtime,
+            )
+            print_result(root, args.thread, result, args.verbose)
             return 0
         snapshot = graph.get_state({"configurable": {"thread_id": args.thread}})
-        print(json.dumps(snapshot.values, ensure_ascii=False, indent=2, default=str))
-        if snapshot.next:
-            print(f"next: {', '.join(snapshot.next)}")
+        if args.verbose:
+            print(json.dumps(snapshot.values, ensure_ascii=False, indent=2, default=str))
+            if snapshot.next:
+                print(f"next: {', '.join(snapshot.next)}")
+        else:
+            print_status(root, args.thread, snapshot.values, snapshot.next)
         return 0
 
 
-def print_result(thread: str, result: dict) -> None:
-    print(f"thread: {thread}")
-    print(f"status: {result.get('status', 'unknown')}")
+def print_result(root: Path, thread: str, result: dict, verbose: bool = False) -> None:
+    print(f"任务: {thread}")
     interrupts = result.get("__interrupt__", [])
     if interrupts:
         value = interrupts[0].value
-        print("\n--- proposal ---\n" + value["proposal"])
-        print("\n--- critique ---\n" + value["critique"])
-        print(f"\nreview verdict: {value.get('review_verdict', 'human')} (revision {value.get('revision', '?')})")
-        print(f"\nResume with: python -m tools.dev_workflow.cli resume {thread} --decision approve [--apply]")
+        print("状态: 等待确认")
+        print(f"审稿: {value.get('review_verdict', 'human')}，第 {value.get('revision', '?')} 版")
+        if verbose:
+            print("\n--- proposal ---\n" + value["proposal"])
+            print("\n--- critique ---\n" + value["critique"])
+        else:
+            print("问题: " + concise(value.get("critique", "")))
+        print(f"详情: {root / '.dev_workflow' / 'runs' / thread}")
+        print(f"继续: .\\tools\\devflow.ps1 continue {thread}")
     elif result.get("validation_review"):
-        print("\n--- validation review ---\n" + result["validation_review"])
+        status = result.get("status", "unknown")
+        print(f"状态: {'完成' if status == 'complete' else '失败'}")
+        print("结果: " + (result["validation_review"] if verbose else concise(result["validation_review"])))
+        print(f"日志: {root / '.dev_workflow' / 'runs' / thread}")
+    else:
+        print(f"状态: {result.get('status', 'unknown')}")
+
+
+def print_status(root: Path, thread: str, values: dict, next_nodes: tuple[str, ...]) -> None:
+    print(f"任务: {thread}")
+    waiting = "discussion" in next_nodes
+    print(f"状态: {'等待确认' if waiting else values.get('status', 'unknown')}")
+    print(f"版本: {values.get('revision', 0)}")
+    if values.get("review_verdict"):
+        print(f"审稿: {values['review_verdict']}")
+    if values.get("critique"):
+        print("问题: " + concise(str(values["critique"])))
+    print(f"详情: {root / '.dev_workflow' / 'runs' / thread}")
+    if waiting:
+        print(f"继续: .\\tools\\devflow.ps1 continue {thread}")
+
+
+def concise(content: str, limit: int = 240) -> str:
+    lines = [line.strip(" #*-\t") for line in content.splitlines() if line.strip(" #*-\t")]
+    numbered = [line for line in lines if re.match(r"^\d+[.)、]\s*", line)]
+    if numbered:
+        text = "；".join(numbered[:3])
+    else:
+        useful = [
+            line
+            for line in lines
+            if len(line) >= 20 and not line.lower().startswith(("looking at", "verdict", "critique", "feedback"))
+        ]
+        text = " ".join(useful[:2]) or "查看详情文件"
+    return text if len(text) <= limit else text[: limit - 3].rstrip() + "..."
 
 
 if __name__ == "__main__":

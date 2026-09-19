@@ -35,8 +35,7 @@
 ```powershell
 py -3 -m venv .venv
 & '.\.venv\Scripts\python.exe' -m pip install -r requirements-workflow.txt
-& '.\.venv\Scripts\python.exe' -m tools.dev_workflow.cli start '描述本次开发目标' --provider mock
-& '.\.venv\Scripts\python.exe' -m tools.dev_workflow.cli start '描述本次开发目标' --provider minimax --auto-review --apply
+.\tools\devflow.ps1 start '描述本次开发目标'
 ```
 
 配置、审批和恢复命令见 [`tools/dev_workflow/README.md`](tools/dev_workflow/README.md)。

@@ -11,7 +11,22 @@ py -3 -m venv .venv
 
 复制 `.env.example` 为 `.env` 并填写需要的值，CLI 会自动加载；也可以直接设置当前终端环境变量。`.env` 已被 Git 忽略，密钥不要写入其他受跟踪文件。
 
-## 启动与讨论
+## 简单用法
+
+```powershell
+# 新建任务：自动审稿、修改和验证
+.\tools\devflow.ps1 start '描述开发需求'
+
+# 任务暂停后：自动采用审稿意见并继续
+.\tools\devflow.ps1 continue <thread>
+
+# 查看简短状态
+.\tools\devflow.ps1 status <thread>
+```
+
+终端默认只显示摘要，完整提案、逐轮审稿和日志保存在 `.dev_workflow/runs/<thread>/`。以下为需要手动控制每一步时使用的高级命令。
+
+## 手动控制
 
 ```powershell
 & '.\.venv\Scripts\python.exe' -m tools.dev_workflow.cli start '调整 line24 的滚动速度' --provider mock
