@@ -10,6 +10,7 @@ const GRAVITY := 1450.0
 const MAX_LAUNCH_SPEED := 980.0
 const MAX_DRAG := 150.0
 const CAMERA_LINE := 500.0
+const START_PLATFORM_Y := 910.0
 const GROUP_GAP := 195.0
 const SHORT_PLATFORM_GAP := 160.0
 const MAX_HP := 4
@@ -58,6 +59,7 @@ var high_score := 0
 var sound_enabled := true
 var paused_by_player := false
 var smoke_test_mode := false
+var tier_notice_time := 0.0
 
 var score_label: Label
 var timer_label: Label
@@ -69,6 +71,7 @@ var high_score_label: Label
 var pause_overlay: CanvasLayer
 var pause_button: Button
 var sound_buttons: Array[Button] = []
+var tier_notice_label: Label
 
 
 func _ready() -> void:
@@ -182,6 +185,14 @@ func _build_hud() -> void:
 	hint_label.add_theme_constant_override("shadow_offset_x", 2)
 	hint_label.add_theme_constant_override("shadow_offset_y", 2)
 	hud.add_child(hint_label)
+	tier_notice_label = _make_label("", 28, Color("ffe36d"), true)
+	tier_notice_label.position = Vector2(120, 225)
+	tier_notice_label.size = Vector2(400, 56)
+	tier_notice_label.add_theme_color_override("font_shadow_color", Color.BLACK)
+	tier_notice_label.add_theme_constant_override("shadow_offset_x", 2)
+	tier_notice_label.add_theme_constant_override("shadow_offset_y", 2)
+	tier_notice_label.visible = false
+	hud.add_child(tier_notice_label)
 	var hud_sound := _make_icon_button("♪", "切换音效")
 	hud_sound.position = Vector2(278, 35)
 	hud_sound.pressed.connect(_toggle_sound)
@@ -211,8 +222,8 @@ func _build_game_over() -> void:
 	title.size = Vector2(400, 70)
 	game_over_panel.add_child(title)
 	result_label = _make_label("得分 0", 38, Color("54240d"), true)
-	result_label.position = Vector2(120, 450)
-	result_label.size = Vector2(400, 60)
+	result_label.position = Vector2(120, 430)
+	result_label.size = Vector2(400, 110)
 	game_over_panel.add_child(result_label)
 	var restart := _make_button("再来一次", Color("68c934"))
 	restart.position = Vector2(155, 570)
@@ -274,6 +285,7 @@ func start_game() -> void:
 	time_left = ROUND_TIME
 	hurt_cooldown = 0.0
 	rocket_time = 0.0
+	tier_notice_time = 0.0
 	tier_slot = 0
 	current_tier_score = 0
 	previous_group_was_double = false
@@ -283,7 +295,10 @@ func start_game() -> void:
 	aiming = false
 	paused_by_player = false
 	pause_overlay.visible = false
+	tier_notice_label.visible = false
+	safe_position = Vector2(320.0, START_PLATFORM_Y - PLAYER_RADIUS)
 	player.position = safe_position
+	player.scale = Vector2.ONE
 	player.modulate = Color.WHITE
 	player.play("walk1")
 	hint_label.visible = true
@@ -298,6 +313,8 @@ func _process(delta: float) -> void:
 	time_left = maxf(0.0, time_left - delta)
 	hurt_cooldown = maxf(0.0, hurt_cooldown - delta)
 	rocket_time = maxf(0.0, rocket_time - delta)
+	tier_notice_time = maxf(0.0, tier_notice_time - delta)
+	tier_notice_label.visible = tier_notice_time > 0.0
 	if rocket_time > 0.0:
 		player.modulate = Color("ffd95b")
 	elif hurt_cooldown > 0.0 and int(hurt_cooldown * 12.0) % 2 == 0:
@@ -517,18 +534,22 @@ func _scroll_world(amount: float) -> void:
 
 
 func _spawn_initial_content() -> void:
-	_spawn_safe_group(910.0)
-	highest_group_y = 910.0
+	var safe_platform := _spawn_safe_group(START_PLATFORM_Y)
+	grounded_platform = safe_platform
+	safe_position = Vector2(320.0, START_PLATFORM_Y - PLAYER_RADIUS)
+	player.position = safe_position
+	highest_group_y = START_PLATFORM_Y
 	for index in range(8):
 		highest_group_y = _spawn_config_group(highest_group_y)
 
 
-func _spawn_safe_group(y: float) -> void:
+func _spawn_safe_group(y: float) -> Dictionary:
 	var root := Node2D.new()
 	root.position.y = y
 	content_layer.add_child(root)
 	var platform := _create_platform(root, db.platforms[10], 0.0, 0.0, false)
-	content_groups.append({"root": root, "platforms": [platform], "monsters": [], "pickups": [], "scored": false})
+	content_groups.append({"root": root, "platforms": [platform], "monsters": [], "pickups": [], "scored": true})
+	return platform
 
 
 func _spawn_config_group(lower_group_y: float) -> float:
@@ -868,7 +889,13 @@ func _clear_content() -> void:
 
 
 func _add_score(value: int) -> void:
+	var previous_tier := int(db.get_tier(score)["score"])
 	score += value
+	var next_tier := int(db.get_tier(score)["score"])
+	if next_tier > previous_tier:
+		tier_notice_label.text = "难度提升 · %d 分段" % next_tier
+		tier_notice_time = 1.8
+		tier_notice_label.visible = true
 
 
 func _finish_game() -> void:
@@ -877,11 +904,11 @@ func _finish_game() -> void:
 	state = GameState.GAME_OVER
 	velocity = Vector2.ZERO
 	aiming = false
-	result_label.text = "得分 %d" % score
 	if score > high_score:
 		high_score = score
 		high_score_label.text = "最高分 %d" % high_score
 		_save_progress()
+	result_label.text = "得分 %d\n最高分 %d" % [score, high_score]
 	game_over_panel.visible = true
 	_play_sound(5)
 
@@ -1089,8 +1116,22 @@ func _capture_smoke() -> void:
 	time_left = 0.0
 	_process(1.0 / 60.0)
 	assert(state == GameState.GAME_OVER, "Timer expiry must end the round")
+	await get_tree().process_frame
+	var game_over_image := get_viewport().get_texture().get_image()
+	if game_over_image != null:
+		game_over_image.save_png("res://artifacts/game_over.png")
 	start_game()
 	assert(state == GameState.PLAYING and hp == MAX_HP and score == 0, "Restart must reset the round")
+	assert(bool(content_groups[0]["scored"]), "The starting safety platform must not award progress score")
+	_scroll_world(240.0)
+	assert(safe_position.y > START_PLATFORM_Y - PLAYER_RADIUS, "World scrolling must move the active safe position")
+	start_game()
+	assert(is_equal_approx(player.position.y, START_PLATFORM_Y - PLAYER_RADIUS), "Restart must restore the initial spawn height")
+	assert(not grounded_platform.is_empty() and int(grounded_platform["id"]) == 10, "Restart must bind the player to the safety platform")
+	score = 90
+	_add_score(10)
+	assert(tier_notice_time > 0.0 and tier_notice_label.visible, "Crossing a score tier must show progression feedback")
+	start_game()
 	var pause_time := time_left
 	_toggle_pause()
 	_process(1.0)
@@ -1104,5 +1145,5 @@ func _capture_smoke() -> void:
 	_update_player(1.0 / 60.0)
 	assert(hp == MAX_HP - 1 and grounded, "Falling must cost one life and respawn on a safe platform")
 	assert(not grounded_platform.is_empty(), "Respawn must select a live platform")
-	print("SMOKE PASS: landing prediction, moving anchors, assisted gaps, ice slide, pause and core game flow")
+	print("SMOKE PASS: restart stability, scoring tiers, landing prediction, moving anchors and core game flow")
 	get_tree().quit()
