@@ -19,8 +19,8 @@ config/icon="res://icon.svg"
 
 window/size/viewport_width=640
 window/size/viewport_height=1091
-window/size/window_width_override=480
-window/size/window_height_override=818
+window/size/window_width_override=576
+window/size/window_height_override=982
 window/stretch/mode="canvas_items"
 window/stretch/aspect="keep"
 
@@ -44,4 +44,4 @@ project/assembly_name="newbird"
 rendering_device/driver.windows="d3d12"
 renderer/rendering_method="gl_compatibility"
 renderer/rendering_method.mobile="gl_compatibility"
-textures/canvas_textures/default_texture_filter=0
+textures/canvas_textures/default_texture_filter=1
